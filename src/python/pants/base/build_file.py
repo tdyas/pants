@@ -39,6 +39,7 @@ class BuildFile(AbstractClass):
 
   @staticmethod
   def clear_cache():
+    # type: () -> ()
     BuildFile._cache = {}
 
   @staticmethod
@@ -94,6 +95,7 @@ class BuildFile(AbstractClass):
                              key=lambda build_file: build_file.full_path))
 
   def __init__(self, project_tree, relpath):
+    # type: (ProjectTree, Optional[str]) -> None
     """Creates a BuildFile object representing the BUILD file family at the specified path.
 
     :param project_tree: Project tree the BUILD file exist in.

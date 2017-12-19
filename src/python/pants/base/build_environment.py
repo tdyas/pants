@@ -18,17 +18,20 @@ logger = logging.getLogger(__name__)
 
 
 def pants_version():
+  # type: () -> str
   """Returns the pants semantic version number as a string: http://semver.org/"""
   return _VERSION
 
 
 def pants_release():
+  # type: () -> str
   """Returns a user-friendly release label."""
   return ('Pants {version} https://pypi.python.org/pypi/pantsbuild.pants/{version}'
           .format(version=pants_version()))
 
 
 def get_buildroot():
+  # type: () -> str
   """Returns the pants build root, calculating it if needed.
 
   :API: public
@@ -41,6 +44,7 @@ def get_buildroot():
 
 
 def get_pants_cachedir():
+  # type: () -> str
   """Return the pants global cache directory."""
   # Follow the unix XDB base spec: http://standards.freedesktop.org/basedir-spec/latest/index.html.
   cache_home = os.environ.get('XDG_CACHE_HOME')
@@ -50,6 +54,7 @@ def get_pants_cachedir():
 
 
 def get_pants_configdir():
+  # type: () -> str
   """Return the pants global config directory."""
   # Follow the unix XDB base spec: http://standards.freedesktop.org/basedir-spec/latest/index.html.
   config_home = os.environ.get('XDG_CONFIG_HOME')
@@ -59,6 +64,7 @@ def get_pants_configdir():
 
 
 def get_default_pants_config_file():
+  # type: () -> str
   """Return the default location of the pants config file."""
   return os.path.join(get_buildroot(), 'pants.ini')
 
@@ -67,6 +73,7 @@ _SCM = None
 
 
 def get_scm():
+  # type: () -> Scm
   """Returns the pants Scm if any.
 
   :API: public
@@ -88,6 +95,7 @@ def get_scm():
 
 
 def set_scm(scm):
+  # type: (Scm) -> ()
   """Sets the pants Scm."""
   if scm is not None:
     if not isinstance(scm, Scm):

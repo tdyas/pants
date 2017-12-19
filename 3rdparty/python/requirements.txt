@@ -16,6 +16,7 @@ parameterized==0.6.1
 pep8==1.6.2
 pex==1.2.15
 psutil==4.3.0
+pyannotate
 pyflakes==1.1.0
 Pygments==1.4
 pyopenssl==17.3.0
