@@ -77,7 +77,6 @@ class ProjectTree(AbstractClass):
     """
 
   def glob1(self, dir_relpath, glob):
-    # type: ()
     """Returns a list of paths in path that match glob and are not ignored."""
     if self.isignored(dir_relpath, directory=True):
       return []

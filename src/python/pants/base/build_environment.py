@@ -95,7 +95,7 @@ def get_scm():
 
 
 def set_scm(scm):
-  # type: (Scm) -> ()
+  # type: (Scm) -> None
   """Sets the pants Scm."""
   if scm is not None:
     if not isinstance(scm, Scm):
