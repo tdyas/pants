@@ -11,21 +11,23 @@
 
 [GLOBAL]
 remote_execution = true
-remote_execution_server = "remotebuildexecution.googleapis.com"
-remote_store_server = "remotebuildexecution.googleapis.com"
+remote_execution_server = "127.0.0.1:8980"
+remote_store_server = "127.0.0.1:8980"
 # This file might not exist on your machine. If this default fails, run `find /usr -name '*.pem'`
 # and override this value via the env var PANTS_REMOTE_CA_CERTS_PATH.
-remote_ca_certs_path = "/usr/local/etc/openssl/cert.pem"
-remote_instance_name = "projects/pants-remoting-beta/instances/default_instance"
+#remote_ca_certs_path = "/usr/local/etc/openssl/cert.pem"
+remote_instance_name = "main"
 remote_execution_extra_platform_properties = [
   # This allows network requests, e.g. to resolve dependencies with Pex.
-  "dockerNetwork=standard",
-  "container-image=docker://gcr.io/pants-remoting-beta/pants-remote-execution@sha256:9aed33779fabc4dbd3c4a883257f6e3ec96ccc8d530e88abf5bffd7efe8aa8f6",
+  "execution-policy=network",
+  "execution-policy=debug",
+  "execution-policy=container-image=pants-remote-execution:d8e14dbeddc58b3481afba9dd31f1287b96bfd5a",
 ]
 
-# This should correspond to the number of workers running in Google RBE. See
-# https://console.cloud.google.com/apis/api/remotebuildexecution.googleapis.com/quotas?project=pants-remoting-beta&folder&organizationId&duration=PT6H.
-process_execution_remote_parallelism = 32
+process_execution_remote_parallelism = 10
+# TODO: Temporarily disabling speculation until we're able to confirm that it never causes a
+# negative performance impact.
+process_execution_speculation_strategy = "none"
 
 [pex]
 executable_search_paths = [
