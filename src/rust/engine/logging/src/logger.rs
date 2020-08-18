@@ -160,6 +160,15 @@ impl Log for Logger {
   fn log(&self, record: &Record) {
     use chrono::Timelike;
     use log::Level;
+
+    // Format the arguments into a string so that any calls into Python are eliminated
+    // before we take any logging-related locks which have caused deadlocks between the
+    // logging-related locks and the Python GIL.
+    //
+    // For examples, see https://github.com/pantsbuild/pants/issues/10617 and
+    // https://github.com/pantsbuild/pants/issues/10638.
+    let fully_formatted_string: String = format!("{}", record.args());
+
     let destination = get_destination();
     match destination {
       Destination::Stderr => {
@@ -195,11 +204,27 @@ impl Log for Logger {
             }
           }
           if handlers_map.len() == 0 || any_handler_failed {
-            self.stderr_log.lock().log(record);
+            self.stderr_log.lock().log(
+              &Record::builder()
+                .metadata(record.metadata().clone())
+                .module_path(record.module_path().clone())
+                .file(record.file().clone())
+                .line(record.line().clone())
+                .args(format_args!("{}", fully_formatted_string))
+                .build(),
+            );
           }
         }
       }
-      Destination::Pantsd => self.pantsd_log.lock().log(record),
+      Destination::Pantsd => self.pantsd_log.lock().log(
+        &Record::builder()
+          .metadata(record.metadata().clone())
+          .module_path(record.module_path().clone())
+          .file(record.file().clone())
+          .line(record.line().clone())
+          .args(format_args!("{}", fully_formatted_string))
+          .build(),
+      ),
     }
   }
 
