@@ -20,7 +20,8 @@ remote_instance_name = "main"
 remote_execution_extra_platform_properties = [
   # This allows network requests, e.g. to resolve dependencies with Pex.
   "execution-policy=network",
-  "execution-policy=container-image=pants-remote-execution:d8e14dbeddc58b3481afba9dd31f1287b96bfd5a",
+  "execution-policy=overlay-writable-rootfs",
+  "execution-policy=container-image=pants-remote-execution:47f364584e3e4bd8c8ecf71639efaec34133e3a9",
 ]
 
 process_execution_remote_parallelism = 10
