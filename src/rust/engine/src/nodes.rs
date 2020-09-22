@@ -689,6 +689,7 @@ impl DownloadedFile {
     if maybe_bytes.is_none() {
       DownloadedFile::download(core.clone(), url, file_name, digest).await?;
     }
+    log::info!("load_or_download: path={:?}; digest={:?}", &path, &digest);
     core.store().snapshot_of_one_file(path, digest, true).await
   }
 

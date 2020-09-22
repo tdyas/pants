@@ -654,9 +654,23 @@ pub trait SnapshotOps: StoreWrapper + 'static {
   /// Given N Snapshots, returns a new Snapshot that merges them.
   ///
   async fn merge(&self, digests: Vec<Digest>) -> Result<Digest, SnapshotOpsError> {
-    merge_directories(self.clone(), digests)
+    for digest in &digests {
+      let directory = self.load_directory(digest.clone())
+        .await;
+        log::info!("digest = {:?}", directory);
+    }
+
+    let result = merge_directories(self.clone(), digests)
       .await
-      .map_err(|e| e.into())
+      .map_err(|e| e.into());
+
+    if let Ok(ref digest) = result {
+      let directory = self.load_directory(digest.clone())
+        .await;
+      log::info!("merged = {:?}", directory);
+    }
+
+    result
   }
 
   async fn add_prefix(
@@ -685,9 +699,17 @@ pub trait SnapshotOps: StoreWrapper + 'static {
     root_digest: Digest,
     prefix: RelativePath,
   ) -> Result<Digest, SnapshotOpsError> {
+    use std::convert::TryInto;
+
     let mut dir = self.load_directory_or_err(root_digest).await?;
+    log::info!("strip_prefix: dir={:?}", &dir);
+    for d in &dir.directories {
+      let x = self.load_directory_or_err(d.get_digest().try_into().unwrap()).await?;
+      log::info!("strip_prefix: {:?} => {:?}", d.get_name(), &x);
+    }
     let mut already_stripped = PathBuf::new();
     let mut prefix: PathBuf = prefix.into();
+    log::info!("strip_prefix: prefix={:?}", &prefix);
     loop {
       let has_already_stripped_any = already_stripped.components().next().is_some();
 

@@ -646,7 +646,10 @@ impl Store {
       .await?;
 
     let tree = match tree_opt {
-      Some(t) => t,
+      Some(t) => {
+        log::info!("tree={:?}", &t);
+        t
+      },
       None => return Ok(None),
     };
 
