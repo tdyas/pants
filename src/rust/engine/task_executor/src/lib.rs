@@ -61,11 +61,11 @@ impl Executor {
   ///
   /// Dropping all clones of the Executor will cause the Runtime to shut down.
   ///
-  pub fn new_owned(core_threads: usize, num_threads: usize) -> Result<Executor, String> {
-    let runtime = Builder::new()
-      .core_threads(core_threads)
-      .max_threads(num_threads)
-      .threaded_scheduler()
+  // TODO(tokio-1.0): Figure out thread count configuration in Pants.
+  pub fn new_owned(_core_threads: usize, num_threads: usize) -> Result<Executor, String> {
+    let runtime = Builder::new_multi_thread()
+      .worker_threads(num_threads)
+      .max_blocking_threads(num_threads)
       .enable_all()
       .build()
       .map_err(|e| format!("Failed to start the runtime: {}", e))?;
@@ -84,7 +84,8 @@ impl Executor {
   where
     F: FnOnce() -> R,
   {
-    self.handle.enter(f)
+    let _context = self.handle.enter();
+    f()
   }
 
   ///
@@ -119,7 +120,9 @@ impl Executor {
     // When a daemon thread kicks off a future, it should log like a daemon thread (and similarly
     // for a user-facing thread).
     self
-      .handle
+      .runtime
+      .as_ref()
+      .unwrap()
       .block_on(Self::future_with_correct_context(future))
   }
 
