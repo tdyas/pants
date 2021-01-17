@@ -72,7 +72,7 @@ impl AsyncLatch {
     // To see whether the latch is triggered, we clone the receiver, and then wait for our clone to
     // return None, indicating that the Sender has been dropped.
     let mut receiver = self.receiver.clone();
-    while receiver.recv().await.is_some() {}
+    while receiver.changed().await.is_ok() {}
   }
 
   ///
