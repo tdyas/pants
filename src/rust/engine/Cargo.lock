@@ -164,9 +164,9 @@ dependencies = [
  "copy_dir",
  "dir-diff",
  "hashing",
- "prost 0.6.1",
- "prost-build 0.6.1",
- "prost-types 0.7.0",
+ "prost 0.7.0",
+ "prost-build",
+ "prost-types",
  "tempfile",
  "tonic",
  "tonic-build",
@@ -370,7 +370,7 @@ version = "0.0.1"
 dependencies = [
  "log 0.4.11",
  "prost 0.6.1",
- "prost-types 0.7.0",
+ "prost-types",
  "serde",
  "serde_derive",
 ]
@@ -1068,7 +1068,7 @@ dependencies = [
  "bytes 1.0.1",
  "futures",
  "prost 0.7.0",
- "prost-types 0.7.0",
+ "prost-types",
  "tokio 1.0.2",
  "tokio-rustls 0.14.1",
  "tokio-util 0.2.0",
@@ -1692,7 +1692,7 @@ dependencies = [
  "log 0.4.11",
  "parking_lot",
  "prost 0.6.1",
- "prost-types 0.7.0",
+ "prost-types",
  "testutil",
  "tokio 1.0.2",
  "tonic",
@@ -2179,7 +2179,7 @@ dependencies = [
  "nails",
  "parking_lot",
  "prost 0.6.1",
- "prost-types 0.7.0",
+ "prost-types",
  "rand 0.6.5",
  "regex",
  "serde",
@@ -2245,23 +2245,6 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.6.1"
-source = "git+https://github.com/danburkert/prost?rev=a1cccbcee343e2c444e1cd2738c7fba2599fc391#a1cccbcee343e2c444e1cd2738c7fba2599fc391"
-dependencies = [
- "bytes 0.5.6",
- "heck",
- "itertools 0.9.0",
- "log 0.4.11",
- "multimap",
- "petgraph 0.5.1",
- "prost 0.6.1",
- "prost-types 0.6.1",
- "tempfile",
- "which 3.1.1",
-]
-
-[[package]]
-name = "prost-build"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32d3ebd75ac2679c2af3a92246639f9fcc8a442ee420719cc4fe195b98dd5fa3"
@@ -2273,9 +2256,9 @@ dependencies = [
  "multimap",
  "petgraph 0.5.1",
  "prost 0.7.0",
- "prost-types 0.7.0",
+ "prost-types",
  "tempfile",
- "which 4.0.2",
+ "which",
 ]
 
 [[package]]
@@ -2301,15 +2284,6 @@ dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.8",
  "syn 1.0.55",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.6.1"
-source = "git+https://github.com/danburkert/prost?rev=a1cccbcee343e2c444e1cd2738c7fba2599fc391#a1cccbcee343e2c444e1cd2738c7fba2599fc391"
-dependencies = [
- "bytes 0.5.6",
- "prost 0.6.1",
 ]
 
 [[package]]
@@ -3059,7 +3033,7 @@ dependencies = [
  "num_cpus",
  "parking_lot",
  "prost 0.6.1",
- "prost-types 0.7.0",
+ "prost-types",
  "serde",
  "serde_derive",
  "serverset",
@@ -3463,7 +3437,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1e8546fd40d56d28089835c0a81bb396848103b00f888aea42d46eb5974df07"
 dependencies = [
  "proc-macro2 1.0.24",
- "prost-build 0.7.0",
+ "prost-build",
  "quote 1.0.8",
  "syn 1.0.55",
 ]
@@ -3844,15 +3818,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f20dea7535251981a9670857150d571846545088359b28e4951d350bdaf179f"
 dependencies = [
  "webpki",
-]
-
-[[package]]
-name = "which"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d011071ae14a2f6671d0b74080ae0cd8ebf3a6f8c9589a2cd45f23126fe29724"
-dependencies = [
- "libc",
 ]
 
 [[package]]
