@@ -1070,7 +1070,7 @@ dependencies = [
  "prost 0.7.0",
  "prost-types",
  "tokio 1.0.2",
- "tokio-rustls 0.14.1",
+ "tokio-rustls 0.22.0",
  "tokio-util 0.2.0",
  "tonic",
 ]
@@ -3041,7 +3041,7 @@ dependencies = [
  "tempfile",
  "testutil",
  "tokio 1.0.2",
- "tokio-rustls 0.14.1",
+ "tokio-rustls 0.22.0",
  "tonic",
  "tryfuture",
  "uuid",

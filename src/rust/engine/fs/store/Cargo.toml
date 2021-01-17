@@ -28,7 +28,7 @@ serde_derive = "1.0"
 sharded_lmdb = { path = "../../sharded_lmdb" }
 task_executor = { path = "../../task_executor" }
 tempfile = "3"
-tokio-rustls = "0.14"
+tokio-rustls = "0.22"
 tonic = { version = "0.4", features = ["transport", "codegen", "tls", "tls-roots", "prost"] }
 tryfuture = { path = "../../tryfuture" }
 uuid = { version = "0.7.1", features = ["v4"] }
