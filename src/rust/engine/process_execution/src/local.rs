@@ -5,7 +5,7 @@ use std::io::Write;
 use std::ops::Neg;
 use std::os::unix::{
   fs::{symlink, OpenOptionsExt},
-  process::ExitStatusExt,
+  process::ExitStatusExt
 };
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -328,7 +328,7 @@ impl CapturedWorkdir for CommandRunner {
         // process but outside of our control (in libraries). As such, we back-stop by sleeping and
         // trying again for a while if we do hit one of these fork races we do not control.
         const MAX_ETXTBSY_WAIT: Duration = Duration::from_millis(100);
-        let mut retries = 0;
+        let mut retries: u32 = 0;
         let mut sleep_millis = 1;
 
         let start_time = std::time::Instant::now();
@@ -337,7 +337,7 @@ impl CapturedWorkdir for CommandRunner {
             Err(e) => {
               if e.raw_os_error() == Some(libc::ETXTBSY) && start_time.elapsed() < MAX_ETXTBSY_WAIT
               {
-                tokio::time::delay_for(std::time::Duration::from_millis(sleep_millis)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(sleep_millis)).await;
                 retries += 1;
                 sleep_millis *= 2;
                 continue;
@@ -361,7 +361,7 @@ impl CapturedWorkdir for CommandRunner {
       }
     }?;
 
-    debug!("spawned local process as {} for {:?}", child.id(), req);
+    debug!("spawned local process as {:?} for {:?}", child.id(), req);
     let stdout_stream = FramedRead::new(child.stdout.take().unwrap(), BytesCodec::new())
       .map_ok(|bytes| ChildOutput::Stdout(bytes.into()))
       .boxed();
@@ -369,6 +369,7 @@ impl CapturedWorkdir for CommandRunner {
       .map_ok(|bytes| ChildOutput::Stderr(bytes.into()))
       .boxed();
     let exit_stream = child
+      .wait()
       .into_stream()
       .map_ok(|exit_status| {
         ChildOutput::Exit(ExitCode(

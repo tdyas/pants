@@ -144,7 +144,7 @@ impl Executor {
     let workunit_state = workunit_store::get_workunit_state();
     // NB: We unwrap here because the only thing that should cause an error in a spawned task is a
     // panic, in which case we want to propagate that.
-    tokio::task::spawn_blocking(move || {
+    self.handle.spawn_blocking(move || {
       logging::set_thread_destination(logging_destination);
       workunit_store::set_thread_workunit_state(workunit_state);
       f()
