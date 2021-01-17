@@ -31,7 +31,6 @@ use futures::future::{BoxFuture, FutureExt};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::delay_until;
 
 pub mod retry;
 
@@ -321,7 +320,7 @@ impl<T: Clone + Send + Sync + 'static> Serverset<T> {
           .unwrap()
       };
 
-      delay_until(instant.into()).await;
+      tokio::time::sleep_until(instant.into()).await;
       serverset.next().await
     }
     .boxed()
