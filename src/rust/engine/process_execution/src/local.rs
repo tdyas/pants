@@ -5,7 +5,7 @@ use std::io::Write;
 use std::ops::Neg;
 use std::os::unix::{
   fs::{symlink, OpenOptionsExt},
-  process::ExitStatusExt
+  process::ExitStatusExt,
 };
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -33,6 +33,9 @@ use workunit_store::Metric;
 use crate::{
   Context, FallibleProcessResultWithPlatform, MultiPlatformProcess, NamedCaches, Platform, Process,
 };
+use futures::task::Poll;
+use futures::Stream;
+use tonic::codegen::Pin;
 
 pub const USER_EXECUTABLE_MODE: u32 = 0o100755;
 
@@ -275,6 +278,27 @@ impl super::CommandRunner for CommandRunner {
   }
 }
 
+use ouroboros::self_referencing;
+
+#[self_referencing]
+struct OwnedChild {
+  child: Box<Child>,
+  #[borrows(mut child)]
+  #[not_covariant]
+  exit_stream: BoxStream<'this, Result<ChildOutput, std::io::Error>>,
+}
+
+impl Stream for OwnedChild {
+  type Item = Result<ChildOutput, std::io::Error>;
+
+  fn poll_next(
+    mut self: Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> Poll<Option<Self::Item>> {
+    self.with_exit_stream_mut(|es| Pin::new(es).poll_next(cx))
+  }
+}
+
 #[async_trait]
 impl CapturedWorkdir for CommandRunner {
   fn named_caches(&self) -> &NamedCaches {
@@ -364,25 +388,36 @@ impl CapturedWorkdir for CommandRunner {
     debug!("spawned local process as {:?} for {:?}", child.id(), req);
     let stdout_stream = FramedRead::new(child.stdout.take().unwrap(), BytesCodec::new())
       .map_ok(|bytes| ChildOutput::Stdout(bytes.into()))
+      .fuse()
       .boxed();
     let stderr_stream = FramedRead::new(child.stderr.take().unwrap(), BytesCodec::new())
       .map_ok(|bytes| ChildOutput::Stderr(bytes.into()))
+      .fuse()
       .boxed();
-    let exit_stream = child
-      .wait()
-      .into_stream()
-      .map_ok(|exit_status| {
-        ChildOutput::Exit(ExitCode(
-          exit_status
-            .code()
-            .or_else(|| exit_status.signal().map(Neg::neg))
-            .expect("Child process should exit via returned code or signal."),
-        ))
-      })
-      .boxed();
+    let owned_child = OwnedChildBuilder {
+      child: Box::new(child),
+      exit_stream_builder: |child: &mut Child| {
+        child
+          .wait()
+          .into_stream()
+          .map_ok(|exit_status| {
+            ChildOutput::Exit(ExitCode(
+              exit_status
+                .code()
+                .or_else(|| exit_status.signal().map(Neg::neg))
+                .expect("Child process should exit via returned code or signal."),
+            ))
+          })
+          .boxed()
+      },
+    }
+    .build();
+
+    let result_stream =
+      futures::stream::select_all(vec![stdout_stream, stderr_stream, owned_child.boxed()]);
 
     Ok(
-      futures::stream::select_all(vec![stdout_stream, stderr_stream, exit_stream])
+      result_stream
         .map_err(|e| format!("Failed to consume process outputs: {:?}", e))
         .boxed(),
     )
