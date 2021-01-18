@@ -8,7 +8,7 @@ use std::time::Duration;
 use futures::future;
 use parking_lot::Mutex;
 use testutil::owned_string_vec;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 fn backoff_config() -> BackoffConfig {
   BackoffConfig::new(Duration::from_millis(10), 2.0, Duration::from_millis(100)).unwrap()
@@ -232,7 +232,7 @@ async fn expect_only_good(s: &Serverset<String>, duration: Duration) {
 
   assert!(*did_get_at_least_one_good.lock());
 
-  delay_for(buffer * 2).await;
+  sleep(buffer * 2).await;
 }
 
 /// For tests, we just use Strings as servers, as it's an easy type we can make from addresses.
