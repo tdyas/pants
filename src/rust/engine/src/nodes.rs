@@ -22,7 +22,7 @@ use crate::externs::engine_aware::{self, EngineAwareInformation};
 use crate::selectors;
 use crate::tasks::{self, Rule};
 use crate::Types;
-use bytes::buf::BufMutExt;
+use bytes::BufMut;
 use cpython::{PyObject, Python, PythonObject};
 use fs::{
   self, Dir, DirectoryListing, File, FileContent, GlobExpansionConjunction, GlobMatching, Link,
