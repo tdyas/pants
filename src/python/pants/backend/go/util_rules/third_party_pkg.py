@@ -129,8 +129,13 @@ async def download_third_party_modules(
     generated_go_mods_to_module_dirs = {}
     for module_metadata in ijson.items(download_result.stdout, "", multiple_values=True):
         download_dir = strip_v2_chroot_path(module_metadata["Dir"])
+        module_path = module_metadata["Path"]
+        module_version = module_metadata["Version"]
+        if "Replace" in module_metadata:
+            module_path = module_metadata["Replace"]["Path"]
+            module_version = module_metadata["Replace"]["Version"]
         module_paths_and_versions_to_dirs[
-            (module_metadata["Path"], module_metadata["Version"])
+            (module_path, module_version)
         ] = download_dir
         _go_sum = os.path.join(download_dir, "go.sum")
         if _go_sum not in all_downloaded_files:
@@ -282,11 +287,12 @@ async def compute_third_party_module_metadata(
 
     import_path_to_info = {}
     for metadata in ijson.items(json_result.stdout, "", multiple_values=True):
+        raise ValueError(f"metadata={metadata}")
         import_path = metadata["ImportPath"]
         pkg_info = ThirdPartyPkgInfo(
             import_path=import_path,
             module_path=request.module_path,
-            version=request.version,
+            version=metadata["Module"]["Version"],
             digest=downloaded_module.digest,
             imports=tuple(metadata.get("Imports", ())),
             go_files=tuple(metadata.get("GoFiles", ())),

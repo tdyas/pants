@@ -61,9 +61,14 @@ def parse_module_descriptors(raw_json: bytes) -> list[ModuleDescriptor]:
         if raw_module_descriptor.get("Main", False):
             continue
 
+        module_path = raw_module_descriptor["Path"]
+        module_version = raw_module_descriptor["Version"]
+        if "Replace" in raw_module_descriptor:
+            module_path = raw_module_descriptor["Replace"]["Path"]
+            module_version = raw_module_descriptor["Replace"]["Version"]
         module_descriptor = ModuleDescriptor(
-            path=raw_module_descriptor["Path"],
-            version=raw_module_descriptor["Version"],
+            path=module_path,
+            version=module_version,
         )
         module_descriptors.append(module_descriptor)
     return module_descriptors
