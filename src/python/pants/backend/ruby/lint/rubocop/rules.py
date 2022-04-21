@@ -58,12 +58,10 @@ async def rubocop_setup(
                 rubygem.path,
                 "install",
                 "--no-document",
+                f"--install-dir={output_dir}",
                 f"--version={rubocop_subsystem.version}",
                 f"rubocop",
             ],
-            env={
-                "GEM_HOME": output_dir,
-            },
             input_digest=empty_output_dir,
             output_directories=[output_dir],
             description="Download RuboCop",
@@ -75,7 +73,7 @@ async def rubocop_setup(
         Digest, RemovePrefix(install_rubocop_result.output_digest, output_dir)
     )
     ss = await Get(Snapshot, Digest, rubocop_digest)
-    # print(f"rubocop.files: {ss.files}")
+    print(f"rubocop.files: {ss.files}")
 
     return RuboCopSetup(rubocop_digest, "bin/rubocop")
 
@@ -108,7 +106,7 @@ async def rubocop_fmt(
                 *request.snapshot.files,
             ],
             env={
-                "GEM_HOME": "__rubocop",
+              "GEM_PATH": "__rubocop",
             },
             input_digest=request.snapshot.digest,
             immutable_input_digests=immutable_input_digests,
