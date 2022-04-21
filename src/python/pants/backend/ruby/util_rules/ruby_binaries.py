@@ -57,7 +57,7 @@ async def find_ruby(ruby_subsystem: RubySubsystem) -> RubyBinary:
 
 
 @rule(desc="Finding a `gem` binary", level=LogLevel.TRACE)
-async def find_rubygem(rubygem_subsystem: RubyGemSubsystem) -> RubyBinary:
+async def find_rubygem(rubygem_subsystem: RubyGemSubsystem) -> RubyGemBinary:
     env = await Get(Environment, EnvironmentRequest(["PATH"]))
     rubygem_binary_paths = await Get(
         BinaryPaths,
@@ -71,7 +71,7 @@ async def find_rubygem(rubygem_subsystem: RubyGemSubsystem) -> RubyBinary:
 
     path = rubygem_binary_paths.first_path
     if path:
-        return RubyBinary(
+        return RubyGemBinary(
             path=path.path,
             fingerprint=path.fingerprint,
         )
