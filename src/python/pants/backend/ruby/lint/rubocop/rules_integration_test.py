@@ -38,7 +38,7 @@ def rule_runner() -> RuleRunner:
         target_types=[RubySourceTarget, RubySourcesGeneratorTarget],
     )
     rule_runner.set_options(
-        [],
+        ["--no-process-cleanup"],
         env_inherit=PYTHON_BOOTSTRAP_ENV,
     )
     return rule_runner
