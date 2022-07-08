@@ -23,6 +23,7 @@ from pants.jvm.target_types import (
     JvmJdkField,
     JvmProvidesTypesField,
     JvmResolveField,
+    TestNGTestSourceField,
 )
 
 
@@ -93,6 +94,45 @@ class JunitTestsGeneratorTarget(TargetFilesGenerator):
         JvmResolveField,
     )
     help = "Generate a `junit_test` target for each file in the `sources` field."
+
+
+# -----------------------------------------------------------------------------------------------
+# `testng_test` and `testng_tests` targets
+# -----------------------------------------------------------------------------------------------
+
+
+class JavaTestNGTestSourceField(JavaSourceField, TestNGTestSourceField):
+    """A TestNG test file written in Java."""
+
+
+class TestNGTestTarget(Target):
+    alias = "testng_test"
+    core_fields = (
+        *COMMON_TARGET_FIELDS,
+        JavaTestNGTestSourceField,
+        JvmDependenciesField,
+        JvmResolveField,
+        JvmProvidesTypesField,
+        JvmJdkField,
+    )
+    help = "A single Java test, run with TestNG."
+
+
+class TestNGTestsGeneratorTarget(TargetFilesGenerator):
+    alias = "testng_tests"
+    core_fields = (
+        *COMMON_TARGET_FIELDS,
+        JavaTestsGeneratorSourcesField,
+    )
+    generated_target_cls = TestNGTestTarget
+    copied_fields = COMMON_TARGET_FIELDS
+    moved_fields = (
+        JvmDependenciesField,
+        JvmJdkField,
+        JvmProvidesTypesField,
+        JvmResolveField,
+    )
+    help = "Generate a `testng_test` target for each file in the `sources` field."
 
 
 # -----------------------------------------------------------------------------------------------

@@ -44,6 +44,7 @@ from pants.backend.scala.lint.scalafmt.subsystem import ScalafmtSubsystem
 from pants.backend.scala.subsystems.scalatest import Scalatest
 from pants.backend.terraform.dependency_inference import TerraformHcl2Parser
 from pants.jvm.resolve.jvm_tool import JvmToolBase
+from pants.jvm.test.testng import TestNG
 from pants.util.strutil import softwrap
 
 logger = logging.getLogger(__name__)
@@ -122,8 +123,10 @@ AllTools = (
     DefaultTool.python(Yapf, backend="pants.backend.python.lint.yapf"),
     # JVM
     DefaultTool.jvm(AvroSubsystem, backend="pants.backend.experimental.codegen.avro.java"),
+    DefaultTool.jvm(JUnit),
     DefaultTool.jvm(GoogleJavaFormatSubsystem),
     DefaultTool.jvm(JUnit),
+    DefaultTool.jvm(TestNG),
     DefaultTool.jvm(KtlintSubsystem, backend="pants.backend.experimental.kotlin.lint.ktlint"),
     DefaultTool.jvm(ScalaPBSubsystem, backend="pants.backend.experimental.codegen.protobuf.scala"),
     DefaultTool.jvm(ScalafmtSubsystem),

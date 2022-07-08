@@ -11,6 +11,8 @@ from pants.backend.java.target_types import (
     JavaSourceTarget,
     JunitTestsGeneratorTarget,
     JunitTestTarget,
+    TestNGTestsGeneratorTarget,
+    TestNGTestTarget,
 )
 from pants.backend.java.target_types import rules as target_types_rules
 from pants.core.util_rules import archive
@@ -23,7 +25,7 @@ from pants.jvm.package.war import rules as war_rules
 from pants.jvm.resolve import coursier_fetch, jvm_tool
 from pants.jvm.strip_jar import strip_jar
 from pants.jvm.target_types import DeployJarTarget, JvmArtifactTarget, JvmWarTarget
-from pants.jvm.test import junit
+from pants.jvm.test import junit, testng
 
 
 def target_types():
@@ -33,6 +35,8 @@ def target_types():
         JavaSourcesGeneratorTarget,
         JunitTestTarget,
         JunitTestsGeneratorTarget,
+        TestNGTestTarget,
+        TestNGTestsGeneratorTarget,
         JvmArtifactTarget,
         JvmWarTarget,
     ]
@@ -45,6 +49,7 @@ def rules():
         *classpath.rules(),
         *junit.rules(),
         *strip_jar.rules(),
+        *testng.rules(),
         *deploy_jar.rules(),
         *lockfile.rules(),
         *coursier_fetch.rules(),

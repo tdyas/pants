@@ -318,6 +318,15 @@ class JunitTestTimeoutField(TestTimeoutField):
 
 
 # -----------------------------------------------------------------------------------------------
+# TestNG test support field(s)
+# -----------------------------------------------------------------------------------------------
+
+
+class TestNGTestSourceField(SingleSourceField, metaclass=ABCMeta):
+    """A marker that indicates that a source field represents a TestNG test."""
+
+
+# -----------------------------------------------------------------------------------------------
 # JAR support fields
 # -----------------------------------------------------------------------------------------------
 
