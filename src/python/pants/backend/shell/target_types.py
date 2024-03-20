@@ -8,6 +8,7 @@ from enum import Enum
 
 from pants.backend.adhoc.target_types import (
     AdhocToolDependenciesField,
+    AdhocToolExecuteInWorkspaceField,
     AdhocToolExecutionDependenciesField,
     AdhocToolExtraEnvVarsField,
     AdhocToolLogOutputField,
@@ -379,6 +380,10 @@ class ShellCommandNamedCachesField(AdhocToolNamedCachesField):
     pass
 
 
+class ShellCommandExecuteInWorkspaceField(AdhocToolExecuteInWorkspaceField):
+    pass
+
+
 class SkipShellCommandTestsField(BoolField):
     alias = "skip_tests"
     default = False
@@ -403,6 +408,7 @@ class ShellCommandTarget(Target):
         ShellCommandWorkdirField,
         ShellCommandNamedCachesField,
         ShellCommandOutputRootDirField,
+        ShellCommandExecuteInWorkspaceField,
         EnvironmentField,
     )
     help = help_text(

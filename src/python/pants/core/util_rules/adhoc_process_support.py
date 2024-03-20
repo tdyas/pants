@@ -30,7 +30,14 @@ from pants.engine.fs import (
     Snapshot,
 )
 from pants.engine.internals.native_engine import AddressInput, RemovePrefix
-from pants.engine.process import FallibleProcessResult, Process, ProcessResult, ProductDescription
+from pants.engine.process import (
+    FallibleProcessResult,
+    Process,
+    ProcessExecutionFailure,
+    ProcessResult,
+    ProductDescription,
+    WorkspaceProcess,
+)
 from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import (
     FieldSetsPerTarget,
@@ -41,6 +48,7 @@ from pants.engine.target import (
     TransitiveTargets,
     TransitiveTargetsRequest,
 )
+from pants.option.global_options import KeepSandboxes
 from pants.util.frozendict import FrozenDict
 
 logger = logging.getLogger(__name__)
@@ -65,6 +73,7 @@ class AdhocProcessRequest:
     log_output: bool
     capture_stdout_file: str | None
     capture_stderr_file: str | None
+    run_in_workspace: bool
 
 
 @dataclass(frozen=True)
@@ -478,12 +487,9 @@ async def create_tool_runner(
     )
 
 
-@rule
-async def run_adhoc_process(
-    request: AdhocProcessRequest,
+async def _run_adhoc_process_helper(
+    request: AdhocProcessRequest, process: Process
 ) -> AdhocProcessResult:
-    process = await Get(Process, AdhocProcessRequest, request)
-
     fallible_result = await Get(FallibleProcessResult, Process, process)
 
     log_on_errors = request.log_on_process_errors or FrozenDict()
@@ -531,6 +537,70 @@ async def run_adhoc_process(
     adjusted = await Get(Digest, RemovePrefix(output_digest, root_output_directory))
 
     return AdhocProcessResult(result, adjusted)
+
+
+async def _run_adhoc_workspace_process_helper(
+    request: AdhocProcessRequest, workspace_process: WorkspaceProcess
+) -> AdhocProcessResult:
+    fallible_result = await Get(FallibleProcessResult, WorkspaceProcess, workspace_process)
+
+    log_on_errors = request.log_on_process_errors or FrozenDict()
+    error_to_log = log_on_errors.get(fallible_result.exit_code, None)
+    if error_to_log:
+        logger.error(error_to_log)
+
+    result = await Get(
+        ProcessResult,
+        {
+            fallible_result: FallibleProcessResult,
+            ProductDescription(request.description): ProductDescription,
+        },
+    )
+
+    if request.log_output:
+        if result.stdout:
+            logger.info(result.stdout.decode())
+        if result.stderr:
+            logger.warning(result.stderr.decode())
+
+    working_directory = parse_relative_directory(request.working_directory, request.address)
+    root_output_directory = parse_relative_directory(
+        request.root_output_directory, working_directory
+    )
+
+    extras = (
+        (request.capture_stdout_file, result.stdout),
+        (request.capture_stderr_file, result.stderr),
+    )
+    extra_contents = {i: j for i, j in extras if i}
+
+    output_digest = result.output_digest
+
+    if extra_contents:
+        extra_digest = await Get(
+            Digest,
+            CreateDigest(
+                FileContent(_parse_relative_file(name, working_directory), content)
+                for name, content in extra_contents.items()
+            ),
+        )
+        output_digest = await Get(Digest, MergeDigests((output_digest, extra_digest)))
+
+    adjusted = await Get(Digest, RemovePrefix(output_digest, root_output_directory))
+
+    return AdhocProcessResult(result, adjusted)
+
+
+@rule
+async def run_adhoc_process(
+    request: AdhocProcessRequest,
+) -> AdhocProcessResult:
+    process = await Get(Process, AdhocProcessRequest, request)
+    if request.run_in_workspace:
+        workspace_process = WorkspaceProcess.from_process(process)
+        return await _run_adhoc_workspace_process_helper(request, workspace_process)
+    else:
+        return await _run_adhoc_process_helper(request, process)
 
 
 @rule

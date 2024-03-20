@@ -253,6 +253,23 @@ class AdhocToolOutputRootDirField(StringField):
     )
 
 
+class AdhocToolExecuteInWorkspaceField(BoolField):
+    alias = "unsafe_execute_in_workspace"
+    default = False
+    help = help_text(
+        """
+        Enable execution of this target's process in the workspace instead of an execution sandbox.
+
+        This option modifies execution of the process invoked by this target to execute in the workspace (i.e.,
+        the source repository) instead of the execution sandbox.
+
+        Note: This is UNSAFE. By using this option, you forgo the "hermetic" nature of the Pants
+        execution model and must guarantee to Pants that the invoked process is repeatable and does not
+        have side effects.
+        """
+    )
+
+
 class AdhocToolTarget(Target):
     alias: ClassVar[str] = "adhoc_tool"
     core_fields = (
@@ -272,6 +289,7 @@ class AdhocToolTarget(Target):
         AdhocToolOutputRootDirField,
         AdhocToolStdoutFilenameField,
         AdhocToolStderrFilenameField,
+        AdhocToolExecuteInWorkspaceField,
         EnvironmentField,
     )
     help = help_text(

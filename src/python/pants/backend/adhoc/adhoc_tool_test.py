@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from textwrap import dedent
 
 import pytest
@@ -302,3 +303,25 @@ def test_execution_dependencies_and_runnable_dependencies(rule_runner: PythonRul
         Address("b", target_name="deps"),
         expected_contents={"b/stdout": file_contents},
     )
+
+
+def test_adhoc_tool_with_workspace_execution(rule_runner: PythonRuleRunner) -> None:
+    rule_runner.write_files(
+        {
+            "BUILD": dedent(
+                """
+            system_binary(name="bash", binary_name="bash")
+            adhoc_tool(
+                name="make-file",
+                runnable=":bash",
+                args=["-c", "echo workspace > foo.txt"],
+                unsafe_execute_in_workspace=True,
+            )
+            """
+            )
+        }
+    )
+    assert_adhoc_tool_result(rule_runner, Address("", target_name="make-file"), {})
+    workspace_output_path = Path(rule_runner.build_root).joinpath("foo.txt")
+    assert workspace_output_path.exists()
+    assert workspace_output_path.read_text().strip() == "workspace"

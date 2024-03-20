@@ -6,6 +6,7 @@ import logging
 
 from pants.backend.adhoc.target_types import (
     AdhocToolArgumentsField,
+    AdhocToolExecuteInWorkspaceField,
     AdhocToolExecutionDependenciesField,
     AdhocToolExtraEnvVarsField,
     AdhocToolLogOutputField,
@@ -96,6 +97,7 @@ async def run_in_sandbox_request(
         log_output=target[AdhocToolLogOutputField].value,
         capture_stderr_file=target[AdhocToolStderrFilenameField].value,
         capture_stdout_file=target[AdhocToolStdoutFilenameField].value,
+        run_in_workspace=target[AdhocToolExecuteInWorkspaceField].value,
     )
 
     adhoc_result = await Get(

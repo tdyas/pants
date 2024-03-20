@@ -27,6 +27,7 @@ pub(crate) fn workspace_process(
     args: Vec<Value>,
 ) -> BoxFuture<'static, NodeResult<Value>> {
     log::debug!("workspace_process generating work unit closure");
+
     // TODO: in_workunit!("workspace_process", Level::Debug, |_workunit| async move {
     async move {
         log::debug!("entering workspace_process");

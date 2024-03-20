@@ -11,6 +11,7 @@ from pants.backend.shell.subsystems.shell_setup import ShellSetup
 from pants.backend.shell.target_types import (
     RunShellCommandWorkdirField,
     ShellCommandCommandField,
+    ShellCommandExecuteInWorkspaceField,
     ShellCommandExecutionDependenciesField,
     ShellCommandExtraEnvVarsField,
     ShellCommandLogOutputField,
@@ -164,6 +165,7 @@ async def _prepare_process_request_from_target(
         log_output=shell_command[ShellCommandLogOutputField].value,
         capture_stdout_file=None,
         capture_stderr_file=None,
+        run_in_workspace=shell_command[ShellCommandExecuteInWorkspaceField].value,
     )
 
 

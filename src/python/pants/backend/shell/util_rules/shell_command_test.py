@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+from pathlib import Path
 from textwrap import dedent
 
 import pytest
@@ -837,3 +838,28 @@ def test_working_directory_special_values(
         Address("src", target_name="workdir"),
         expected_contents={"out.log": f"{expected_dir}\n"},
     )
+
+
+def test_shell_command_with_workspace_execution(rule_runner: RuleRunner) -> None:
+    rule_runner.write_files(
+        {
+            "BUILD": dedent(
+                """
+            shell_command(
+                name="make-file",
+                command="echo workspace > foo.txt && echo sandbox > {chroot}/out.log",
+                output_files=["out.log"],
+                unsafe_execute_in_workspace=True,
+            )
+            """
+            )
+        }
+    )
+    assert_shell_command_result(
+        rule_runner,
+        Address("", target_name="make-file"),
+        expected_contents={"out.log": "sandbox\n"},
+    )
+    workspace_output_path = Path(rule_runner.build_root).joinpath("foo.txt")
+    assert workspace_output_path.exists()
+    assert workspace_output_path.read_text().strip() == "workspace"
