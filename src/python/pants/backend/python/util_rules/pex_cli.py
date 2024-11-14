@@ -7,6 +7,7 @@ import dataclasses
 import logging
 import os.path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Mapping, Optional, Tuple
 
 from pants.backend.python.subsystems.python_native_code import PythonNativeCodeSubsystem
@@ -21,7 +22,7 @@ from pants.core.util_rules.external_tool import (
     ExternalToolRequest,
     TemplatedExternalTool,
 )
-from pants.engine.fs import CreateDigest, Digest, Directory, MergeDigests
+from pants.engine.fs import CreateDigest, Digest, Directory, FileContent, MergeDigests
 from pants.engine.internals.selectors import MultiGet
 from pants.engine.platform import Platform
 from pants.engine.process import Process, ProcessCacheScope
@@ -85,6 +86,7 @@ class PexCliProcess:
     level: LogLevel
     concurrency_available: int
     cache_scope: ProcessCacheScope
+    with_keychain_trampoline: bool
 
     def __init__(
         self,
@@ -99,6 +101,7 @@ class PexCliProcess:
         level: LogLevel = LogLevel.INFO,
         concurrency_available: int = 0,
         cache_scope: ProcessCacheScope = ProcessCacheScope.SUCCESSFUL,
+        with_keychain_trampoline: bool = False,
     ) -> None:
         object.__setattr__(self, "subcommand", tuple(subcommand))
         object.__setattr__(self, "extra_args", tuple(extra_args))
@@ -112,6 +115,7 @@ class PexCliProcess:
         object.__setattr__(self, "level", level)
         object.__setattr__(self, "concurrency_available", concurrency_available)
         object.__setattr__(self, "cache_scope", cache_scope)
+        object.__setattr__(self, "with_keychain_trampoline", with_keychain_trampoline)
 
         self.__post_init__()
 
@@ -119,6 +123,37 @@ class PexCliProcess:
         if "--pex-root-path" in self.extra_args:
             raise ValueError("`--pex-root` flag not allowed. We set its value for you.")
 
+
+_KEYCHAIN_SCRIPT = """\
+#!/bin/bash
+if [ "$1" != "get" ]; then
+  echo "ERROR: The `keychain` trampoline script only supports `get` command." 1>&2
+  exit 10
+fi
+
+if [ -z "$__PANTS_KEYCHAIN_DIR" ]; then
+  echo "ERROR: __PANTS_KEYCHAIN_DIR was not set." 1>&2
+  exit 11
+fi
+
+echo "invoked: " "$@" >> "$__PANTS_KEYCHAIN_DIR/args.txt"
+
+auth_file="$__PANTS_KEYCHAIN_DIR}/auth.txt"
+if [ -e "$auth_file" ]; then
+  cat "$auth_file"
+fi
+"""
+
+
+def _get_keychain_script() -> Get:
+    return Get(Digest, CreateDigest([
+        FileContent(
+            path=".keychain/keychain",
+            content=_KEYCHAIN_SCRIPT.encode(),
+            is_executable=True,
+        )
+    ]))
+    
 
 class PexPEX(DownloadedExternalTool):
     """The Pex PEX binary."""
@@ -150,6 +185,9 @@ async def setup_pex_cli_process(
         ca_certs_fc = ca_certs_path_to_file_content(global_options.ca_certs_path)
         gets.append(Get(Digest, CreateDigest((ca_certs_fc,))))
         cert_args = ["--cert", ca_certs_fc.path]
+
+    if request.with_keychain_trampoline:
+        gets.append(_get_keychain_script())
 
     digests_to_merge = [pex_pex.digest]
     digests_to_merge.extend(await MultiGet(gets))
@@ -189,8 +227,10 @@ async def setup_pex_cli_process(
     # `pex3` console script do. So if invoked with a subcommand, the caller must selectively
     # set --pip-version only on subcommands that take it.
     pip_version_args = [] if request.subcommand else ["--pip-version", python_setup.pip_version]
+    # pip_version_args = ["--pip-version", python_setup.pip_version]
     args = [
         *request.subcommand,
+        "--keychain-provider=subprocess",
         *global_args,
         *verbosity_args,
         *warnings_args,
@@ -211,6 +251,14 @@ async def setup_pex_cli_process(
         # If a subcommand is used, we need to use the `pex3` console script.
         **({"PEX_SCRIPT": "pex3"} if request.subcommand else {}),
     }
+
+    if request.with_keychain_trampoline:
+        Path("/tmp/pants-keychain").mkdir(exist_ok=True)
+        env["__PANTS_KEYCHAIN_DIR"] = "/tmp/pants-keychain"
+        if "PATH" in env:
+            env["PATH"] = f"{{chroot}}/.keychain:{env['PATH']}"
+        else:
+            env["PATH"] = "{chroot}/.keychain"
 
     return Process(
         normalized_argv,

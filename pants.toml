@@ -153,7 +153,7 @@ emit_warnings = true
 interpreter_constraints = ["==3.9.*"]
 macos_big_sur_compatibility = true
 enable_resolves = true
-pip_version = "latest"
+pip_version = "24.3.1"
 
 [python.resolves]
 python-default = "3rdparty/python/user_reqs.lock"
@@ -245,3 +245,13 @@ args = ["-Yrangepos", "-Xlint:unused"]
 
 [scala-infer]
 force_add_siblings_as_dependencies = false
+
+[pex-cli]
+url_template = "file:///home/tdyas/Projects/Pants/pex/dist/pex"
+known_versions = [
+  "v2.24.1|macos_arm64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
+  "v2.24.1|macos_x86_64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
+  "v2.24.1|linux_x86_64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
+  "v2.24.1|linux_arm64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310"
+]
+version = "v2.24.1"
