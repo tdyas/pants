@@ -247,11 +247,11 @@ args = ["-Yrangepos", "-Xlint:unused"]
 force_add_siblings_as_dependencies = false
 
 [pex-cli]
-url_template = "file:///home/tdyas/Projects/Pants/pex/dist/pex"
+url_template = "file:///home/tdyas/Projects/Pants/pex/dist/pex1"
 known_versions = [
-  "v2.24.1|macos_arm64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
-  "v2.24.1|macos_x86_64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
-  "v2.24.1|linux_x86_64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310",
-  "v2.24.1|linux_arm64|6863be78d125e22dd011631973e9e0902ec882deeaacec109ad64962a6d72dc0|3887310"
+  "v2.24.1|macos_arm64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
+  "v2.24.1|macos_x86_64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
+  "v2.24.1|linux_x86_64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
+  "v2.24.1|linux_arm64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297"
 ]
 version = "v2.24.1"

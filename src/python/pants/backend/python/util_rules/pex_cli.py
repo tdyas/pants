@@ -86,7 +86,7 @@ class PexCliProcess:
     level: LogLevel
     concurrency_available: int
     cache_scope: ProcessCacheScope
-    with_keychain_trampoline: bool
+    with_keyring_trampoline: bool
 
     def __init__(
         self,
@@ -101,7 +101,7 @@ class PexCliProcess:
         level: LogLevel = LogLevel.INFO,
         concurrency_available: int = 0,
         cache_scope: ProcessCacheScope = ProcessCacheScope.SUCCESSFUL,
-        with_keychain_trampoline: bool = False,
+        with_keyring_trampoline: bool = True,
     ) -> None:
         object.__setattr__(self, "subcommand", tuple(subcommand))
         object.__setattr__(self, "extra_args", tuple(extra_args))
@@ -115,7 +115,7 @@ class PexCliProcess:
         object.__setattr__(self, "level", level)
         object.__setattr__(self, "concurrency_available", concurrency_available)
         object.__setattr__(self, "cache_scope", cache_scope)
-        object.__setattr__(self, "with_keychain_trampoline", with_keychain_trampoline)
+        object.__setattr__(self, "with_keyring_trampoline", with_keyring_trampoline)
 
         self.__post_init__()
 
@@ -124,32 +124,32 @@ class PexCliProcess:
             raise ValueError("`--pex-root` flag not allowed. We set its value for you.")
 
 
-_KEYCHAIN_SCRIPT = """\
+_KEYRING_SCRIPT = """\
 #!/bin/bash
 if [ "$1" != "get" ]; then
-  echo "ERROR: The `keychain` trampoline script only supports `get` command." 1>&2
+  echo "ERROR: The `keyring` trampoline script only supports `get` command." 1>&2
   exit 10
 fi
 
-if [ -z "$__PANTS_KEYCHAIN_DIR" ]; then
-  echo "ERROR: __PANTS_KEYCHAIN_DIR was not set." 1>&2
+if [ -z "$__PANTS_KEYRING_DIR" ]; then
+  echo "ERROR: __PANTS_KEYRING_DIR was not set." 1>&2
   exit 11
 fi
 
-echo "invoked: " "$@" >> "$__PANTS_KEYCHAIN_DIR/args.txt"
+echo "invoked: " "$@" >> "$__PANTS_KEYRING_DIR/args.txt"
 
-auth_file="$__PANTS_KEYCHAIN_DIR}/auth.txt"
+auth_file="$__PANTS_KEYRING_DIR}/auth.txt"
 if [ -e "$auth_file" ]; then
   cat "$auth_file"
 fi
 """
 
 
-def _get_keychain_script() -> Get:
+def _get_keyring_script() -> Get:
     return Get(Digest, CreateDigest([
         FileContent(
-            path=".keychain/keychain",
-            content=_KEYCHAIN_SCRIPT.encode(),
+            path=".keyring/keyring",
+            content=_KEYRING_SCRIPT.encode(),
             is_executable=True,
         )
     ]))
@@ -186,8 +186,10 @@ async def setup_pex_cli_process(
         gets.append(Get(Digest, CreateDigest((ca_certs_fc,))))
         cert_args = ["--cert", ca_certs_fc.path]
 
-    if request.with_keychain_trampoline:
-        gets.append(_get_keychain_script())
+    keychain_args: list[str] = []
+    if request.with_keyring_trampoline:
+        gets.append(_get_keyring_script())
+        keychain_args.append("--keyring-provider=subprocess")
 
     digests_to_merge = [pex_pex.digest]
     digests_to_merge.extend(await MultiGet(gets))
@@ -226,11 +228,11 @@ async def setup_pex_cli_process(
     # All old-style pex runs take the --pip-version flag, but only certain subcommands of the
     # `pex3` console script do. So if invoked with a subcommand, the caller must selectively
     # set --pip-version only on subcommands that take it.
-    pip_version_args = [] if request.subcommand else ["--pip-version", python_setup.pip_version]
-    # pip_version_args = ["--pip-version", python_setup.pip_version]
+    # pip_version_args = [] if request.subcommand else ["--pip-version", python_setup.pip_version]
+    pip_version_args = ["--pip-version", python_setup.pip_version]
     args = [
         *request.subcommand,
-        "--keychain-provider=subprocess",
+        *keychain_args,
         *global_args,
         *verbosity_args,
         *warnings_args,
@@ -252,9 +254,9 @@ async def setup_pex_cli_process(
         **({"PEX_SCRIPT": "pex3"} if request.subcommand else {}),
     }
 
-    if request.with_keychain_trampoline:
-        Path("/tmp/pants-keychain").mkdir(exist_ok=True)
-        env["__PANTS_KEYCHAIN_DIR"] = "/tmp/pants-keychain"
+    if request.with_keyring_trampoline:
+        Path("/tmp/pants-keyring").mkdir(exist_ok=True)
+        env["__PANTS_KEYCHAIN_DIR"] = "/tmp/pants-keyring"
         if "PATH" in env:
             env["PATH"] = f"{{chroot}}/.keychain:{env['PATH']}"
         else:
