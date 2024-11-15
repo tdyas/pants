@@ -8,26 +8,29 @@ import logging
 import os.path
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional, Tuple
+from typing import ClassVar, Iterable, List, Mapping, Optional, Tuple
 
 from pants.backend.python.subsystems.python_native_code import PythonNativeCodeSubsystem
 from pants.backend.python.subsystems.setup import PythonSetup
 from pants.backend.python.util_rules import pex_environment
 from pants.backend.python.util_rules.pex_environment import PexEnvironment, PexSubsystem
+from pants.base.build_root import BuildRoot
 from pants.core.goals.resolves import ExportableTool
 from pants.core.util_rules import adhoc_binaries, external_tool
 from pants.core.util_rules.adhoc_binaries import PythonBuildStandaloneBinary
+from pants.core.util_rules.environments import EnvironmentTarget
 from pants.core.util_rules.external_tool import (
     DownloadedExternalTool,
     ExternalToolRequest,
     TemplatedExternalTool,
 )
+from pants.engine.environment import EnvironmentName
 from pants.engine.fs import CreateDigest, Digest, Directory, FileContent, MergeDigests
 from pants.engine.internals.selectors import MultiGet
 from pants.engine.platform import Platform
 from pants.engine.process import Process, ProcessCacheScope
 from pants.engine.rules import Get, collect_rules, rule
-from pants.engine.unions import UnionRule
+from pants.engine.unions import UnionMembership, UnionRule, union
 from pants.option.global_options import GlobalOptions, ca_certs_path_to_file_content
 from pants.option.option_types import ArgsListOption
 from pants.util.frozendict import FrozenDict
@@ -72,6 +75,16 @@ class PexCli(TemplatedExternalTool):
             )
             for plat in ["macos_arm64", "macos_x86_64", "linux_x86_64", "linux_arm64"]
         ]
+
+@union
+@dataclass(frozen=True)
+class PexKeyringConfiguationRequest:
+    pass
+
+
+@dataclass(frozen=True)
+class PexKeyringConfogurationResponse:
+    enable_keyring_trampoline: bool
 
 
 @dataclass(frozen=True)
@@ -127,20 +140,24 @@ class PexCliProcess:
 _KEYRING_SCRIPT = """\
 #!/bin/bash
 if [ "$1" != "get" ]; then
-  echo "ERROR: The `keyring` trampoline script only supports `get` command." 1>&2
+  echo "ERROR: The `keyring` trampoline script only supports the `get` subcommand." 1>&2
   exit 10
 fi
 
-if [ -z "$__PANTS_KEYRING_DIR" ]; then
-  echo "ERROR: __PANTS_KEYRING_DIR was not set." 1>&2
+if [ -z "$__PANTS_KEYRING_DATA" ]; then
+  echo "ERROR: __PANTS_KEYRING_DATA env var was not set." 1>&2
   exit 11
 fi
 
-echo "invoked: " "$@" >> "$__PANTS_KEYRING_DIR/args.txt"
-
-auth_file="$__PANTS_KEYRING_DIR}/auth.txt"
-if [ -e "$auth_file" ]; then
-  cat "$auth_file"
+if [ -e "$__PANTS_KEYRING_DATA" ]; then
+  source "$__PANTS_KEYRING_DATA"
+  key="$2-$3"
+  if [ -z "${pants_keyring_data[$key]}" ]; then
+    echo "${pants_keyring_data[$key]}"
+    exit 0
+  else
+    exit 1
+  fi
 fi
 """
 
@@ -176,6 +193,9 @@ async def setup_pex_cli_process(
     pex_subsystem: PexSubsystem,
     pex_cli_subsystem: PexCli,
     python_setup: PythonSetup,
+    env_tgt: EnvironmentTarget,
+    build_root: BuildRoot,
+    union_membership: UnionMembership,
 ) -> Process:
     tmpdir = ".tmp"
     gets: List[Get] = [Get(Digest, CreateDigest([Directory(tmpdir)]))]
@@ -186,10 +206,11 @@ async def setup_pex_cli_process(
         gets.append(Get(Digest, CreateDigest((ca_certs_fc,))))
         cert_args = ["--cert", ca_certs_fc.path]
 
-    keychain_args: list[str] = []
-    if request.with_keyring_trampoline:
+    with_keyring_trampoline: bool = request.with_keyring_trampoline and env_tgt.can_access_local_system_paths
+    keyring_args: list[str] = []
+    if with_keyring_trampoline:
         gets.append(_get_keyring_script())
-        keychain_args.append("--keyring-provider=subprocess")
+        keyring_args.append("--keyring-provider=subprocess")
 
     digests_to_merge = [pex_pex.digest]
     digests_to_merge.extend(await MultiGet(gets))
@@ -232,7 +253,7 @@ async def setup_pex_cli_process(
     pip_version_args = ["--pip-version", python_setup.pip_version]
     args = [
         *request.subcommand,
-        *keychain_args,
+        *keyring_args,
         *global_args,
         *verbosity_args,
         *warnings_args,
@@ -254,9 +275,10 @@ async def setup_pex_cli_process(
         **({"PEX_SCRIPT": "pex3"} if request.subcommand else {}),
     }
 
-    if request.with_keyring_trampoline:
-        Path("/tmp/pants-keyring").mkdir(exist_ok=True)
-        env["__PANTS_KEYCHAIN_DIR"] = "/tmp/pants-keyring"
+    if with_keyring_trampoline:
+        keyring_data_path = Path(build_root.pathlib_path) / ".pants.d" / "keyring" / "data.txt"
+        keyring_data_path.parent.mkdir(parents=True, exist_ok=True)
+        env["__PANTS_KEYRING_DATA"] = str(keyring_data_path)
         if "PATH" in env:
             env["PATH"] = f"{{chroot}}/.keychain:{env['PATH']}"
         else:
