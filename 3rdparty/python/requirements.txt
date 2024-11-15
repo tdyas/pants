@@ -60,3 +60,6 @@ python-gnupg==0.4.9 # For validating signatures
 
 # Only used for release management
 PyGithub==2.4.0
+
+# For AWS Code Artifact support.
+boto3>=1.35.62
