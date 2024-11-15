@@ -52,10 +52,12 @@ from pants.backend.python.util_rules import (
     pex,
     pex_from_targets,
     python_sources,
+    aws_codeartifact,
 )
 from pants.build_graph.build_file_aliases import BuildFileAliases
 from pants.core.target_types import TargetGeneratorSourcesHelperTarget
 from pants.core.util_rules.wrap_source import wrap_source_rule_and_target
+from pants.engine.internals.scheduler import SESSION_START_HOOKS
 
 wrap_python = wrap_source_rule_and_target(PythonSourceField, "python_sources")
 
@@ -65,6 +67,11 @@ def build_file_aliases():
 
 
 def rules():
+    # TODO: Figure out a generic way to support setting up session startup hooks.
+    from pants.backend.python.util_rules.aws_codeartifact import aws_codeartifact_session_startup_hook
+    if aws_codeartifact.aws_codeartifact_session_startup_hook not in SESSION_START_HOOKS:
+        SESSION_START_HOOKS.append(aws_codeartifact.aws_codeartifact_session_startup_hook)
+
     return (
         *target_types_rules.rules(),
         # Subsystems
@@ -95,6 +102,7 @@ def rules():
         *python_requirements.rules(),
         *uv_requirements.rules(),
         *wrap_python.rules,
+        *aws_codeartifact.rules(),
     )
 
 

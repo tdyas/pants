@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import PurePath
 from types import CoroutineType
-from typing import Any, Callable, Dict, Iterable, NoReturn, Sequence, cast
+from typing import Any, Callable, ClassVar, Dict, Iterable, NoReturn, Sequence, cast
 
 from typing_extensions import TypedDict
 
@@ -108,6 +108,9 @@ class ExecutionError(Exception):
 class ExecutionTimeoutError(ExecutionError):
     """An ExecutionRequest specified a timeout which elapsed before the request completed."""
 
+
+# TODO: Figure out a way to make this more generic and not a global.
+SESSION_START_HOOKS: list[Callable[[SchedulerSession], None]] = []
 
 class Scheduler:
     def __init__(
@@ -340,7 +343,7 @@ class Scheduler:
         cancellation_latch: PySessionCancellationLatch | None = None,
     ) -> SchedulerSession:
         """Creates a new SchedulerSession for this Scheduler."""
-        return SchedulerSession(
+        scheduler_session = SchedulerSession(
             self,
             PySession(
                 scheduler=self.py_scheduler,
@@ -352,6 +355,12 @@ class Scheduler:
                 cancellation_latch=cancellation_latch or PySessionCancellationLatch(),
             ),
         )
+        
+        # TODO: Figure out a way to make this more generic and not a global.
+        for callback in SESSION_START_HOOKS:
+            callback(scheduler_session)
+
+        return scheduler_session
 
     def shutdown(self, timeout_secs: int = 60) -> None:
         native_engine.scheduler_shutdown(self.py_scheduler, timeout_secs)

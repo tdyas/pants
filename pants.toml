@@ -247,11 +247,15 @@ args = ["-Yrangepos", "-Xlint:unused"]
 force_add_siblings_as_dependencies = false
 
 [pex-cli]
-url_template = "file:///home/tdyas/Projects/Pants/pex/dist/pex1"
+url_template = "file:///home/tdyas/Projects/Pants/pex/dist/pex2"
 known_versions = [
-  "v2.24.1|macos_arm64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
-  "v2.24.1|macos_x86_64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
-  "v2.24.1|linux_x86_64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297",
-  "v2.24.1|linux_arm64|92ebe74e7814c12789e06ef1776851194d67dca3304f4e8fc7a218b4e9d4416b|3887297"
+  "v2.24.1|macos_arm64|2108c6ccf39d115c2d70b475c3bfe13fe92b2b51f0be6ec39137de6b50086524|3887294",
+  "v2.24.1|macos_x86_64|2108c6ccf39d115c2d70b475c3bfe13fe92b2b51f0be6ec39137de6b50086524|3887294",
+  "v2.24.1|linux_x86_64|2108c6ccf39d115c2d70b475c3bfe13fe92b2b51f0be6ec39137de6b50086524|3887294",
+  "v2.24.1|linux_arm64|2108c6ccf39d115c2d70b475c3bfe13fe92b2b51f0be6ec39137de6b50086524|3887294"
 ]
 version = "v2.24.1"
+
+[python-aws-codeartifact]
+enabled = true
+domain = "paradox"
