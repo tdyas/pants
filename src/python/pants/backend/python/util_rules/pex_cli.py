@@ -6,6 +6,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os.path
+import shlex
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Iterable, List, Mapping, Optional, Tuple
@@ -76,16 +78,6 @@ class PexCli(TemplatedExternalTool):
             for plat in ["macos_arm64", "macos_x86_64", "linux_x86_64", "linux_arm64"]
         ]
 
-@union
-@dataclass(frozen=True)
-class PexKeyringConfiguationRequest:
-    pass
-
-
-@dataclass(frozen=True)
-class PexKeyringConfogurationResponse:
-    enable_keyring_trampoline: bool
-
 
 @dataclass(frozen=True)
 class PexCliProcess:
@@ -114,7 +106,7 @@ class PexCliProcess:
         level: LogLevel = LogLevel.INFO,
         concurrency_available: int = 0,
         cache_scope: ProcessCacheScope = ProcessCacheScope.SUCCESSFUL,
-        with_keyring_trampoline: bool = True,
+        with_keyring_trampoline: bool = False,
     ) -> None:
         object.__setattr__(self, "subcommand", tuple(subcommand))
         object.__setattr__(self, "extra_args", tuple(extra_args))
@@ -137,6 +129,17 @@ class PexCliProcess:
             raise ValueError("`--pex-root` flag not allowed. We set its value for you.")
 
 
+@union
+@dataclass(frozen=True)
+class PexKeyringConfigurationRequest:
+    pex_cli_process: PexCliProcess
+
+
+@dataclass(frozen=True)
+class PexKeyringConfigurationResponse:
+    keyring_trampoline_data: str | None
+
+
 _KEYRING_SCRIPT = """\
 #!/bin/bash
 if [ "$1" != "get" ]; then
@@ -151,26 +154,28 @@ fi
 
 if [ -e "$__PANTS_KEYRING_DATA" ]; then
   source "$__PANTS_KEYRING_DATA"
-  key="$2-$3"
-  if [ -z "${pants_keyring_data[$key]}" ]; then
-    echo "${pants_keyring_data[$key]}"
-    exit 0
-  else
-    exit 1
-  fi
+  echo "$pants_keyring_data"
+  exit 0
+else
+  exit 1
 fi
 """
 
 
 def _get_keyring_script() -> Get:
-    return Get(Digest, CreateDigest([
-        FileContent(
-            path=".keyring/keyring",
-            content=_KEYRING_SCRIPT.encode(),
-            is_executable=True,
-        )
-    ]))
-    
+    return Get(
+        Digest,
+        CreateDigest(
+            [
+                FileContent(
+                    path=".keyring/keyring",
+                    content=_KEYRING_SCRIPT.encode(),
+                    is_executable=True,
+                )
+            ]
+        ),
+    )
+
 
 class PexPEX(DownloadedExternalTool):
     """The Pex PEX binary."""
@@ -180,6 +185,43 @@ class PexPEX(DownloadedExternalTool):
 async def download_pex_pex(pex_cli: PexCli, platform: Platform) -> PexPEX:
     pex_pex = await Get(DownloadedExternalTool, ExternalToolRequest, pex_cli.get_request(platform))
     return PexPEX(digest=pex_pex.digest, exe=pex_pex.exe)
+
+
+async def _compute_keyring_trampoline_data(
+    request: PexCliProcess,
+    union_membership: UnionMembership,
+    env_tgt: EnvironmentTarget,
+    build_root: BuildRoot,
+) -> tuple[str | None, Path | None]:
+    if not env_tgt.can_access_local_system_paths:
+        return None, None
+
+    keyring_trampoline_data: str | None = None
+    keyring_plugin_request_types = union_membership.get(PexKeyringConfigurationRequest)
+    for keyring_plugin_request_type in keyring_plugin_request_types:
+        keyring_plugin_request = keyring_plugin_request_type(pex_cli_process=request)
+        keyring_plugin_response = await Get(
+            PexKeyringConfigurationResponse, PexKeyringConfigurationRequest, keyring_plugin_request
+        )
+        # TODO: Support multple keyring responses? Overwrite for now.
+        if keyring_plugin_response.keyring_trampoline_data is not None:
+            logger.warning("Multiple PexKeyringConfigurationRequest plugins returned responses!")
+        keyring_trampoline_data = keyring_plugin_response.keyring_trampoline_data
+
+    if not keyring_trampoline_data:
+        return None, None
+
+    keyring_data_path = build_root.pathlib_path / ".pants.d" / "keyring" / "data.txt"
+    keyring_data_path.parent.mkdir(parents=True, exist_ok=True)
+    keyring_data_path.write_bytes(
+        textwrap.dedent(
+            f"""\
+        pants_keyring_data={shlex.quote(keyring_trampoline_data.strip())}
+        """
+        ).encode()
+    )
+
+    return keyring_trampoline_data, keyring_data_path
 
 
 @rule
@@ -206,9 +248,11 @@ async def setup_pex_cli_process(
         gets.append(Get(Digest, CreateDigest((ca_certs_fc,))))
         cert_args = ["--cert", ca_certs_fc.path]
 
-    with_keyring_trampoline: bool = request.with_keyring_trampoline and env_tgt.can_access_local_system_paths
+    keyring_trampoline_data, keyring_data_path = await _compute_keyring_trampoline_data(
+        request=request, union_membership=union_membership, env_tgt=env_tgt, build_root=build_root
+    )
     keyring_args: list[str] = []
-    if with_keyring_trampoline:
+    if keyring_trampoline_data:
         gets.append(_get_keyring_script())
         keyring_args.append("--keyring-provider=subprocess")
 
@@ -275,9 +319,7 @@ async def setup_pex_cli_process(
         **({"PEX_SCRIPT": "pex3"} if request.subcommand else {}),
     }
 
-    if with_keyring_trampoline:
-        keyring_data_path = Path(build_root.pathlib_path) / ".pants.d" / "keyring" / "data.txt"
-        keyring_data_path.parent.mkdir(parents=True, exist_ok=True)
+    if keyring_data_path:
         env["__PANTS_KEYRING_DATA"] = str(keyring_data_path)
         if "PATH" in env:
             env["PATH"] = f"{{chroot}}/.keychain:{env['PATH']}"

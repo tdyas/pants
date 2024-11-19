@@ -2,23 +2,31 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 from __future__ import annotations
+
+import datetime as dt
 import json
 import logging
+import textwrap
+from dataclasses import dataclass
 from pathlib import Path
-import datetime as dt
 from typing import Any, cast
 
 import boto3
-from pants.backend.python.subsystems.aws_codeartifact import PythonAwsCodeartifact
-from pants.base.build_root import BuildRoot
-from dataclasses import dataclass
-from pants.core.util_rules.environments import determine_bootstrap_environment
 
+from pants.backend.python.subsystems.aws_codeartifact import PythonAwsCodeartifact
+from pants.backend.python.subsystems.repos import PythonRepos
+from pants.backend.python.util_rules.pex_cli import (
+    PexKeyringConfigurationRequest,
+    PexKeyringConfigurationResponse,
+)
+from pants.base.build_root import BuildRoot
+from pants.core.util_rules.environments import determine_bootstrap_environment
 from pants.engine.environment import EnvironmentName
 from pants.engine.internals.scheduler import Scheduler, SchedulerSession
 from pants.engine.internals.selectors import Params
 from pants.engine.internals.session import SessionValues
-from pants.engine.rules import QueryRule
+from pants.engine.rules import QueryRule, collect_rules, rule
+from pants.engine.unions import UnionRule
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +47,13 @@ class AuthToken:
         }
 
 
-def _load_tokem() -> AuthToken | None:
+def _load_token() -> AuthToken | None:
     build_root: Path = BuildRoot().pathlib_path
     aws_codeartifact_dir = build_root / ".pants.d" / "aws" / "codeartifact"
     aws_codeartifact_auth_cache = aws_codeartifact_dir / "auth-cache.json"
     if not aws_codeartifact_auth_cache.exists():
         return None
-    
+
     try:
         raw_data = aws_codeartifact_auth_cache.read_bytes()
         data = json.loads(raw_data)
@@ -56,13 +64,13 @@ def _load_tokem() -> AuthToken | None:
     if not isinstance(data, dict):
         logger.debug("CodeArtifact auth cache was not a JSON object.")
         return None
-    
+
     token: Any = data.get("token")
     expires: Any = data.get("expires")
     if token is None or expires is None:
         logger.debug("CodeArtifact auth cache did not have all required fields.")
         return None
-    
+
     if not isinstance(token, str) or not isinstance(expires, str):
         logger.debug("CodeArtifact auth cache did not have all required fields with correct types.")
         return None
@@ -82,37 +90,65 @@ def _save_token(auth_token: AuthToken) -> None:
 
 def _codeartifact_login(domain: str) -> AuthToken:
     logger.info("Logging in to AWS CodeArtifact.")
-    codeartifact = boto3.client('codeartifact')
+    codeartifact = boto3.client("codeartifact")
     response = codeartifact.get_authorization_token(domain=domain)
     logger.info("Logged in to AWS CodeArtifact.")
     return AuthToken(token=response["authorizationToken"], expires=response["expiration"])
 
 
-def _ensure_aws_codeartifact_login(options: PythonAwsCodeartifact) -> None:
-    auth_token = _load_tokem()
+def _ensure_aws_codeartifact_login(options: PythonAwsCodeartifact) -> AuthToken:
+    auth_token = _load_token()
     if auth_token is not None:
         if dt.datetime.now(dt.timezone.utc) < auth_token.expires - _RENEWAL_WINDOW:
             # TODO: Write out the key to the store used by pip invocations.
-            return
-        
+            return auth_token
+
     auth_token = _codeartifact_login(options.domain)
     # TODO: Error handling and retry logic.
     _save_token(auth_token)
-        
+    return auth_token
 
 
 def aws_codeartifact_session_startup_hook(scheduler_session: SchedulerSession) -> None:
     env_name = determine_bootstrap_environment(scheduler_session)
-    result = scheduler_session.product_request(PythonAwsCodeartifact, [Params(env_name)])
-    assert len(result) == 1
-    options = cast(PythonAwsCodeartifact, result[0])
+    try:
+        # TODO: The pantsd engine session does not have an `OptionsBootstrapper.` Catch the exception
+        # and avoid logging in to AWS CodeArtifact. We will do the login only when invoked for an actual
+        # user command.
+        result = scheduler_session.product_request(PythonAwsCodeartifact, [Params(env_name)])
+        assert len(result) == 1
 
-    if options.enabled:
-        _ensure_aws_codeartifact_login(options)
+        options = cast(PythonAwsCodeartifact, result[0])
+        if options.enabled:
+            _ensure_aws_codeartifact_login(options)
+    except Exception:
+        pass
+
+
+class AwsCodeArtifactPexKeyringConfigurationRequest(PexKeyringConfigurationRequest):
+    pass
+
+
+@rule
+async def aws_code_artifact_pex_keyring_configuration_request(
+    request: AwsCodeArtifactPexKeyringConfigurationRequest, codeartifiact_subsystem: PythonAwsCodeartifact, python_repos: PythonRepos
+) -> PexKeyringConfigurationResponse:
+    logger.info("aws_code_artifact_pex_keyring_configuration_request: Checking whether to include AWS keyring data.")
+    needs_codeartifact = any(repo.find("codeartifact") >= 0 for repo in [*python_repos.indexes, *python_repos.find_links])
+    if needs_codeartifact and codeartifiact_subsystem.enabled:
+        auth_token = _load_token()
+        if auth_token and dt.datetime.now(dt.timezone.utc) < auth_token.expires:
+            logger.info("aws_code_artifact_pex_keyring_configuration_request: YES")
+            return PexKeyringConfigurationResponse(keyring_trampoline_data=auth_token.token)
+
+    logger.info("aws_code_artifact_pex_keyring_configuration_request: Nope.")
+    return PexKeyringConfigurationResponse(keyring_trampoline_data=None)
 
 
 def rules():
     return [
+        *collect_rules(),
         *PythonAwsCodeartifact.rules(),
+        UnionRule(PexKeyringConfigurationRequest, AwsCodeArtifactPexKeyringConfigurationRequest),
         QueryRule(PythonAwsCodeartifact, [EnvironmentName]),
     ]

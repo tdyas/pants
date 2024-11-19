@@ -112,6 +112,7 @@ class ExecutionTimeoutError(ExecutionError):
 # TODO: Figure out a way to make this more generic and not a global.
 SESSION_START_HOOKS: list[Callable[[SchedulerSession], None]] = []
 
+
 class Scheduler:
     def __init__(
         self,
@@ -355,8 +356,9 @@ class Scheduler:
                 cancellation_latch=cancellation_latch or PySessionCancellationLatch(),
             ),
         )
-        
-        # TODO: Figure out a way to make this more generic and not a global.
+
+        # TODO: Figure out a way to make this more generic and not a global into which plugins add a callback.
+        # Probably should be part of plugin registration.
         for callback in SESSION_START_HOOKS:
             callback(scheduler_session)
 

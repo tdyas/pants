@@ -20,4 +20,5 @@ class PythonAwsCodeartifact(Subsystem):
     )
 
     enabled = BoolOption(default=False, help="enable codeartifact key renewals")
+    user = StrOption(default="aws", help="Username used in CodeArtifact URLs")
     domain = StrOption(default="", help="CodeArtifact domain containing the repositories")
