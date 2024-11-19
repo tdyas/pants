@@ -10,7 +10,7 @@ import shlex
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Iterable, List, Mapping, Optional, Tuple
+from typing import Iterable, List, Mapping, Optional, Tuple
 
 from pants.backend.python.subsystems.python_native_code import PythonNativeCodeSubsystem
 from pants.backend.python.subsystems.setup import PythonSetup
@@ -26,7 +26,6 @@ from pants.core.util_rules.external_tool import (
     ExternalToolRequest,
     TemplatedExternalTool,
 )
-from pants.engine.environment import EnvironmentName
 from pants.engine.fs import CreateDigest, Digest, Directory, FileContent, MergeDigests
 from pants.engine.internals.selectors import MultiGet
 from pants.engine.platform import Platform
@@ -91,7 +90,6 @@ class PexCliProcess:
     level: LogLevel
     concurrency_available: int
     cache_scope: ProcessCacheScope
-    with_keyring_trampoline: bool
 
     def __init__(
         self,
@@ -120,7 +118,6 @@ class PexCliProcess:
         object.__setattr__(self, "level", level)
         object.__setattr__(self, "concurrency_available", concurrency_available)
         object.__setattr__(self, "cache_scope", cache_scope)
-        object.__setattr__(self, "with_keyring_trampoline", with_keyring_trampoline)
 
         self.__post_init__()
 
@@ -200,7 +197,7 @@ async def _compute_keyring_trampoline_data(
     keyring_plugin_request_types = union_membership.get(PexKeyringConfigurationRequest)
     for keyring_plugin_request_type in keyring_plugin_request_types:
         keyring_plugin_request = keyring_plugin_request_type(pex_cli_process=request)
-        keyring_plugin_response = await Get(
+        keyring_plugin_response = await Get(  # noqa: PNT30: Only one provider expected.
             PexKeyringConfigurationResponse, PexKeyringConfigurationRequest, keyring_plugin_request
         )
         if keyring_plugin_response.keyring_trampoline_data is None:

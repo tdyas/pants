@@ -47,7 +47,6 @@ from pants.backend.python.target_types import (
 )
 from pants.backend.python.util_rules import (
     ancestor_files,
-    aws_codeartifact,
     local_dists,
     local_dists_pep660,
     pex,
@@ -96,7 +95,6 @@ def rules():
         *python_requirements.rules(),
         *uv_requirements.rules(),
         *wrap_python.rules,
-        *aws_codeartifact.rules(),
     )
 
 

@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Iterable
-
 from pants.backend.python.util_rules import aws_codeartifact
-from pants.engine.rules import Rule
-from pants.engine.unions import UnionRule
 
-def rules() -> Iterable[Rule | UnionRule]:
+
+def rules():
     return aws_codeartifact.rules()

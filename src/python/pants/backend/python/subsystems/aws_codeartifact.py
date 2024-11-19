@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from pants.option.option_types import BoolOption, IntOption, StrOption
+from pants.option.option_types import BoolOption, StrOption
 from pants.option.subsystem import Subsystem
 from pants.util.strutil import help_text
 
@@ -20,5 +20,6 @@ class PythonAwsCodeartifact(Subsystem):
     )
 
     enabled = BoolOption(default=False, help="enable codeartifact key renewals")
-    user = StrOption(default="aws", help="Username used in CodeArtifact URLs")
-    domain = StrOption(default="", help="CodeArtifact domain containing the repositories")
+    domain = StrOption(
+        default="", help="AWS CodeArtifact domain containing the relevant repositories"
+    )
