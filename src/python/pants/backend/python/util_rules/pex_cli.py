@@ -203,14 +203,18 @@ async def _compute_keyring_trampoline_data(
         keyring_plugin_response = await Get(
             PexKeyringConfigurationResponse, PexKeyringConfigurationRequest, keyring_plugin_request
         )
-        # TODO: Support multple keyring responses? Overwrite for now.
-        if keyring_plugin_response.keyring_trampoline_data is not None:
+        if keyring_plugin_response.keyring_trampoline_data is None:
+            continue
+
+        # TODO: Support multiple keyring plugin responses? Just warn and overwrite for now.
+        if keyring_trampoline_data is not None:
             logger.warning("Multiple PexKeyringConfigurationRequest plugins returned responses!")
         keyring_trampoline_data = keyring_plugin_response.keyring_trampoline_data
 
     if not keyring_trampoline_data:
         return None, None
 
+    # TODO: Make this directory configurable?
     keyring_data_path = build_root.pathlib_path / ".pants.d" / "keyring" / "data.txt"
     keyring_data_path.parent.mkdir(parents=True, exist_ok=True)
     keyring_data_path.write_bytes(
@@ -322,9 +326,9 @@ async def setup_pex_cli_process(
     if keyring_data_path:
         env["__PANTS_KEYRING_DATA"] = str(keyring_data_path)
         if "PATH" in env:
-            env["PATH"] = f"{{chroot}}/.keychain:{env['PATH']}"
+            env["PATH"] = f"{{chroot}}/.keyring:{env['PATH']}"
         else:
-            env["PATH"] = "{chroot}/.keychain"
+            env["PATH"] = "{chroot}/.keyring"
 
     return Process(
         normalized_argv,
