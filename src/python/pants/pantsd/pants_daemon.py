@@ -15,7 +15,6 @@ from setproctitle import setproctitle as set_process_title
 from pants.base.build_environment import get_buildroot
 from pants.base.exception_sink import ExceptionSink
 from pants.bin.daemon_pants_runner import DaemonPantsRunner
-from pants.engine.env_vars import CompleteEnvironmentVars
 from pants.engine.internals import native_engine
 from pants.engine.internals.native_engine import PyExecutor, PyNailgunServer
 from pants.init.engine_initializer import GraphScheduler
@@ -95,8 +94,6 @@ class PantsDaemon(PantsDaemonProcessManager):
     def _setup_services(
         bootstrap_options: OptionValueContainer,
         graph_scheduler: GraphScheduler,
-        options_bootstrapper: OptionsBootstrapper,
-        env: CompleteEnvironmentVars,
     ):
         """Initialize pantsd services.
 
@@ -118,8 +115,6 @@ class PantsDaemon(PantsDaemonProcessManager):
             ),
             pid=os.getpid(),
             max_memory_usage_in_bytes=bootstrap_options.pantsd_max_memory_usage,
-            options_bootstrapper=options_bootstrapper,
-            env=env,
         )
 
         store_gc_service = StoreGCService(

@@ -255,7 +255,3 @@ known_versions = [
   "v2.24.1|linux_arm64|3521a0a108c7c6d8173bbac4990df66d780fd4ef44e02456e03fde1951e0db53|3889985",
 ]
 version = "v2.24.1"
-
-[python-aws-codeartifact]
-enabled = true
-domain = "paradox"

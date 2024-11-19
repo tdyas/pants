@@ -27,6 +27,7 @@ from pants.engine.internals.selectors import Params
 from pants.engine.internals.session import SessionValues
 from pants.engine.rules import QueryRule, collect_rules, rule
 from pants.engine.unions import UnionRule
+from pants.option.options_bootstrapper import OptionsBootstrapper
 
 logger = logging.getLogger(__name__)
 
@@ -110,19 +111,26 @@ def _ensure_aws_codeartifact_login(options: PythonAwsCodeartifact) -> AuthToken:
 
 
 def aws_codeartifact_session_startup_hook(scheduler_session: SchedulerSession) -> None:
-    env_name = determine_bootstrap_environment(scheduler_session)
-    try:
-        # TODO: The pantsd engine session does not have an `OptionsBootstrapper.` Catch the exception
-        # and avoid logging in to AWS CodeArtifact. We will do the login only when invoked for an actual
-        # user command.
-        result = scheduler_session.product_request(PythonAwsCodeartifact, [Params(env_name)])
-        assert len(result) == 1
+    logger.info("SessionValues 1")
+    session_values = scheduler_session.product_request(SessionValues, [])
+    logger.info(f"SessionValues? {session_values is not None}")
+    if OptionsBootstrapper not in session_values:
+        logger.info("SKIP OUT DOODAH DAY")
+        return
 
-        options = cast(PythonAwsCodeartifact, result[0])
-        if options.enabled:
-            _ensure_aws_codeartifact_login(options)
-    except Exception:
-        pass
+    env_name = determine_bootstrap_environment(scheduler_session)
+
+    # TODO: The pantsd engine "base" session does not have an `OptionsBootstrapper.` We will do the login
+    # only when invoked for an actual user command.
+
+    logger.info("PythonAwsCodeartifact 1")
+    result = scheduler_session.product_request(PythonAwsCodeartifact, [Params(env_name)])
+    logger.info(f"PythonAwsCodeartifact 2: result={result}")
+    assert len(result) == 1
+    options = cast(PythonAwsCodeartifact, result[0])
+
+    if options.enabled:
+        _ensure_aws_codeartifact_login(options)
 
 
 class AwsCodeArtifactPexKeyringConfigurationRequest(PexKeyringConfigurationRequest):
@@ -131,10 +139,16 @@ class AwsCodeArtifactPexKeyringConfigurationRequest(PexKeyringConfigurationReque
 
 @rule
 async def aws_code_artifact_pex_keyring_configuration_request(
-    request: AwsCodeArtifactPexKeyringConfigurationRequest, codeartifiact_subsystem: PythonAwsCodeartifact, python_repos: PythonRepos
+    _request: AwsCodeArtifactPexKeyringConfigurationRequest,
+    codeartifiact_subsystem: PythonAwsCodeartifact,
+    python_repos: PythonRepos,
 ) -> PexKeyringConfigurationResponse:
-    logger.info("aws_code_artifact_pex_keyring_configuration_request: Checking whether to include AWS keyring data.")
-    needs_codeartifact = any(repo.find("codeartifact") >= 0 for repo in [*python_repos.indexes, *python_repos.find_links])
+    logger.info(
+        "aws_code_artifact_pex_keyring_configuration_request: Checking whether to include AWS keyring data."
+    )
+    needs_codeartifact = any(
+        repo.find("codeartifact") >= 0 for repo in [*python_repos.indexes, *python_repos.find_links]
+    )
     if needs_codeartifact and codeartifiact_subsystem.enabled:
         auth_token = _load_token()
         if auth_token and dt.datetime.now(dt.timezone.utc) < auth_token.expires:
@@ -150,5 +164,6 @@ def rules():
         *collect_rules(),
         *PythonAwsCodeartifact.rules(),
         UnionRule(PexKeyringConfigurationRequest, AwsCodeArtifactPexKeyringConfigurationRequest),
+        QueryRule(SessionValues, []),
         QueryRule(PythonAwsCodeartifact, [EnvironmentName]),
     ]

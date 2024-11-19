@@ -29,8 +29,6 @@ class PantsServicesConstructor(Protocol):
         self,
         bootstrap_options: OptionValueContainer,
         graph_scheduler: GraphScheduler,
-        options_bootstrapper: OptionsBootstrapper,
-        env: CompleteEnvironmentVars,
     ) -> PantsServices:
         ...
 
@@ -93,8 +91,6 @@ class PantsDaemonCore:
         build_config: BuildConfiguration,
         dynamic_remote_options: DynamicRemoteOptions,
         scheduler_restart_explanation: str | None,
-        options_bootstrapper: OptionsBootstrapper,
-        env: CompleteEnvironmentVars,
     ) -> None:
         """(Re-)Initialize the scheduler.
 
@@ -112,12 +108,7 @@ class PantsDaemonCore:
                 bootstrap_options, build_config, dynamic_remote_options, self._executor
             )
 
-            self._services = self._services_constructor(
-                bootstrap_options,
-                self._scheduler,
-                options_bootstrapper=options_bootstrapper,
-                env=env,
-            )
+            self._services = self._services_constructor(bootstrap_options, self._scheduler)
             self._fingerprint = options_fingerprint
             logger.info("Scheduler initialized.")
         except Exception as e:
@@ -186,8 +177,6 @@ class PantsDaemonCore:
                         build_config,
                         dynamic_remote_options,
                         scheduler_restart_explanation,
-                        options_bootstrapper,
-                        env,
                     )
 
             self._prior_dynamic_remote_options = dynamic_remote_options

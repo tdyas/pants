@@ -7,12 +7,9 @@ from typing import Optional, Tuple, cast
 
 import psutil
 
-from pants.engine.env_vars import CompleteEnvironmentVars
 from pants.engine.fs import PathGlobs, Snapshot, SnapshotDiff
 from pants.engine.internals.scheduler import ExecutionTimeoutError
-from pants.engine.internals.session import SessionValues
 from pants.init.engine_initializer import GraphScheduler
-from pants.option.options_bootstrapper import OptionsBootstrapper
 from pants.pantsd.service.pants_service import PantsService
 from pants.util.strutil import softwrap
 
@@ -35,8 +32,6 @@ class SchedulerService(PantsService):
         self,
         *,
         graph_scheduler: GraphScheduler,
-        options_bootstrapper: OptionsBootstrapper,
-        env: CompleteEnvironmentVars,
         build_root: str,
         invalidation_globs: Tuple[str, ...],
         pidfile: str,
@@ -63,12 +58,6 @@ class SchedulerService(PantsService):
         # It is not involved with a build itself; just with deciding when we should restart pantsd.
         self._scheduler_session = self._scheduler.new_session(
             build_id="scheduler_service_session",
-            session_values=SessionValues(
-                {
-                    OptionsBootstrapper: options_bootstrapper,
-                    CompleteEnvironmentVars: env,
-                }
-            ),
         )
         self._logger = logging.getLogger(__name__)
 
