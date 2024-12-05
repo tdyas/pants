@@ -209,3 +209,50 @@ def test_get_docker_with_tools(rule_runner: RuleRunner) -> None:
 
     # Optional non-existent tool should still succeed.
     run(tools=[], optional_tools=["real-tool", "nonexistent-tool"])
+
+
+def test_get_docker_with_duplicate_tools(rule_runner: RuleRunner) -> None:
+    def mock_get_binary_path(request: BinaryPathRequest) -> BinaryPaths:
+        if request.binary_name == "docker":
+            return BinaryPaths("docker", paths=[BinaryPath("/bin/docker")])
+        elif request.binary_name == "real-tool":
+            return BinaryPaths("real-tool", paths=[BinaryPath("/bin/a-real-tool")])
+        else:
+            return BinaryPaths(request.binary_name, ())
+
+    def mock_get_binary_shims(request: BinaryShimsRequest) -> BinaryShims:
+        return BinaryShims(EMPTY_DIGEST, "cache_name")
+
+    def run(tools: list[str], optional_tools: list[str]) -> None:
+        docker_options = create_subsystem(
+            DockerOptions,
+            experimental_enable_podman=False,
+            tools=tools,
+            optional_tools=optional_tools,
+        )
+        docker_options_env_aware = mock.MagicMock(spec=DockerOptions.EnvironmentAware)
+
+        nonlocal mock_get_binary_path
+        nonlocal mock_get_binary_shims
+
+        run_rule_with_mocks(
+            get_docker,
+            rule_args=[docker_options, docker_options_env_aware],
+            mock_gets=[
+                MockGet(
+                    output_type=BinaryPaths,
+                    input_types=(BinaryPathRequest,),
+                    mock=mock_get_binary_path,
+                ),
+                MockGet(
+                    output_type=BinaryShims,
+                    input_types=(BinaryShimsRequest,),
+                    mock=mock_get_binary_shims,
+                ),
+            ],
+        )
+
+    run(tools=["real-tool"], optional_tools=["real-tool"])
+
+    with pytest.raises(BinaryNotFoundError, match="Cannot find `nonexistent-tool`"):
+        run(tools=["real-tool", "nonexistent-tool"], optional_tools=[])

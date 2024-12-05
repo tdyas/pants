@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from textwrap import dedent
 
+from pants.util.contextutil import environment_as, temporary_dir
 import pytest
 
 from pants.backend.docker.goals.package_image import DockerPackageFieldSet
@@ -90,3 +93,28 @@ def test_docker_build_multi_layer(rule_runner: RuleRunner) -> None:
     assert "Built docker image: test-image:1.0" == result.artifacts[0].extra_log_lines[0]
     assert "Docker image ID:" in result.artifacts[0].extra_log_lines[1]
     assert "<unknown>" not in result.artifacts[0].extra_log_lines[1]
+
+
+def test_docker_build_with_duplicate_tools(rule_runner: RuleRunner) -> None:
+    """This test requires a running docker daemon."""
+    with temporary_dir() as tempdir:
+        script_path = Path(tempdir) / "some-docker-tool"
+        script_path.write_text("""#!/bin/bash\nexit 144\n""")
+        script_path.chmod(0o755)
+
+        with environment_as(PATH=f"{tempdir}:{os.environ['PATH']}"):
+            rule_runner.write_files(
+                {
+                    "src/BUILD": "docker_image(name='test-image', image_tags=['1.0'])",
+                    "src/Dockerfile": "FROM python:3.8",
+                }
+            )
+            rule_runner.set_options(["--docker-tools=some-docker-tool", "--docker-optional-tools=some-docker-tool"], env_inherit={"PATH"})
+
+            target = rule_runner.get_target(Address("src", target_name="test-image"))
+            result = run_docker(rule_runner, target)
+            assert len(result.artifacts) == 1
+            assert len(result.artifacts[0].extra_log_lines) == 2
+            assert "Built docker image: test-image:1.0" == result.artifacts[0].extra_log_lines[0]
+            assert "Docker image ID:" in result.artifacts[0].extra_log_lines[1]
+            assert "<unknown>" not in result.artifacts[0].extra_log_lines[1]
