@@ -181,6 +181,8 @@ def test_validate_lockfiles(
             ),
             no_binary=FrozenOrderedSet(["not-sdist" if invalid_no_binary else "sdist"]),
             only_binary=FrozenOrderedSet(["not-bdist" if invalid_only_binary else "bdist"]),
+            overrides=FrozenOrderedSet(),
+            excludes=FrozenOrderedSet(),
             path_mappings=(),
         ),
     )
@@ -190,8 +192,7 @@ def test_validate_lockfiles(
 
     reqs_desc = comma_separated_list(f"`{rs}`" for rs in req_strings)
     contains(
-        f"You are consuming {reqs_desc} from the `a` lockfile at lock.txt "
-        "with incompatible inputs"
+        f"You are consuming {reqs_desc} from the `a` lockfile at lock.txt with incompatible inputs"
     )
     contains(
         "The lockfile does not provide all the necessary requirements",
@@ -209,7 +210,7 @@ def test_validate_lockfiles(
     contains("The `no_binary` arguments have changed", if_=invalid_no_binary)
     contains("The `manylinux` argument has changed", if_=invalid_manylinux)
 
-    contains("./pants generate-lockfiles --resolve=a`")
+    contains("pants generate-lockfiles --resolve=a`")
 
 
 def test_is_probably_pex_json_lockfile():
@@ -367,6 +368,8 @@ class TestResolvePexConfigPexArgs:
                 constraints_file=None,
                 no_binary=FrozenOrderedSet(no_binary) if no_binary else FrozenOrderedSet(),
                 only_binary=FrozenOrderedSet(only_binary) if only_binary else FrozenOrderedSet(),
+                excludes=FrozenOrderedSet(),
+                overrides=FrozenOrderedSet(),
                 path_mappings=[],
             ).pex_args()
         )

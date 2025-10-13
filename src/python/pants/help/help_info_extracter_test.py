@@ -1,22 +1,23 @@
 # Copyright 2015 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+from collections.abc import Iterable
 from enum import Enum
-from types import SimpleNamespace
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from pants.base.build_environment import get_buildroot
 from pants.build_graph.build_configuration import BuildConfiguration
+from pants.engine.fs import FileContent
 from pants.engine.goal import GoalSubsystem
 from pants.engine.internals.parser import BuildFileSymbolInfo, BuildFileSymbolsInfo
 from pants.engine.rules import collect_rules, rule
 from pants.engine.target import IntField, RegisteredTargetTypes, StringField, Target
 from pants.engine.unions import UnionMembership
 from pants.help.help_info_extracter import HelpInfoExtracter, pretty_print_type_hint, to_help_str
-from pants.option.config import Config
-from pants.option.global_options import GlobalOptions, LogLevelOption
+from pants.option.bootstrap_options import LogLevelOption
+from pants.option.global_options import GlobalOptions
 from pants.option.native_options import NativeOptionParser
-from pants.option.option_types import BoolOption, IntListOption, StrListOption
+from pants.option.option_types import BoolOption, IntListOption, OptionInfo, StrListOption
 from pants.option.options import Options
 from pants.option.ranked_value import Rank
 from pants.option.registrar import OptionRegistrar
@@ -35,7 +36,7 @@ def test_global_scope():
     def do_test(args, kwargs, expected_display_args, expected_scoped_cmd_line_args):
         # The scoped and unscoped args are the same in global scope.
         expected_unscoped_cmd_line_args = expected_scoped_cmd_line_args
-        ohi = HelpInfoExtracter("").get_option_help_info(args, kwargs)
+        ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(args, kwargs))
         assert tuple(expected_display_args) == ohi.display_args
         assert tuple(expected_scoped_cmd_line_args) == ohi.scoped_cmd_line_args
         assert tuple(expected_unscoped_cmd_line_args) == ohi.unscoped_cmd_line_args
@@ -63,8 +64,7 @@ def test_global_scope():
         ["--foo"],
         {"type": list, "member_type": dict},
         [
-            "--foo=\"[{'key1': val1, 'key2': val2, ...}, "
-            "{'key1': val1, 'key2': val2, ...}, ...]\"",
+            "--foo=\"[{'key1': val1, 'key2': val2, ...}, {'key1': val1, 'key2': val2, ...}, ...]\"",
         ],
         ["--foo"],
     )
@@ -81,7 +81,7 @@ def test_non_global_scope():
         expected_scoped_cmd_line_args,
         expected_unscoped_cmd_line_args,
     ):
-        ohi = HelpInfoExtracter("bar.baz").get_option_help_info(args, kwargs)
+        ohi = HelpInfoExtracter("bar.baz").get_option_help_info(OptionInfo(args, kwargs))
         assert tuple(expected_display_args) == ohi.display_args
         assert tuple(expected_scoped_cmd_line_args) == ohi.scoped_cmd_line_args
         assert tuple(expected_unscoped_cmd_line_args) == ohi.unscoped_cmd_line_args
@@ -104,7 +104,13 @@ def test_default() -> None:
             scope=GlobalOptions.options_scope,
         )
         native_parser = NativeOptionParser(
-            [], {}, [], allow_pantsrc=False, include_derivation=True, known_scopes_to_flags={}
+            [],
+            {},
+            [],
+            allow_pantsrc=False,
+            include_derivation=True,
+            known_scopes_to_flags={},
+            known_goals=[],
         )
         registrar.register(*args, **kwargs)
         oshi = HelpInfoExtracter(registrar.scope).get_option_scope_help_info(
@@ -129,7 +135,7 @@ def test_default() -> None:
 
 
 def test_compute_default():
-    def do_test(expected_default: Optional[Any], **kwargs):
+    def do_test(expected_default: Any | None, **kwargs):
         assert expected_default == HelpInfoExtracter.compute_default(**kwargs)
 
     do_test(False, type=bool, default=False)
@@ -142,7 +148,7 @@ def test_compute_default():
 
 def test_deprecated():
     kwargs = {"removal_version": "999.99.9", "removal_hint": "do not use this"}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert "999.99.9" == ohi.removal_version
     assert "do not use this" == ohi.removal_hint
     assert ohi.deprecated_message is not None
@@ -150,28 +156,28 @@ def test_deprecated():
 
 
 def test_not_deprecated():
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], {})
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), {}))
     assert ohi.removal_version is None
     assert not ohi.deprecation_active
 
 
 def test_deprecation_start_version_past():
     kwargs = {"deprecation_start_version": "1.0.0", "removal_version": "999.99.9"}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert "999.99.9" == ohi.removal_version
     assert ohi.deprecation_active
 
 
 def test_deprecation_start_version_future():
     kwargs = {"deprecation_start_version": "999.99.8", "removal_version": "999.99.9"}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert "999.99.9" == ohi.removal_version
     assert not ohi.deprecation_active
 
 
 def test_passthrough():
     kwargs = {"passthrough": True, "type": list, "member_type": str}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--thing"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--thing",), kwargs))
     assert 2 == len(ohi.display_args)
     assert any(args.startswith("--thing") for args in ohi.display_args)
     assert any(args.startswith("... -- ") for args in ohi.display_args)
@@ -179,19 +185,19 @@ def test_passthrough():
 
 def test_choices() -> None:
     kwargs = {"choices": ["info", "debug"]}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert ohi.choices == ("info", "debug")
 
 
 def test_choices_enum() -> None:
     kwargs = {"type": LogLevelSimple}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert ohi.choices == ("info", "debug")
 
 
 def test_list_of_enum() -> None:
     kwargs = {"type": list, "member_type": LogLevelSimple}
-    ohi = HelpInfoExtracter("").get_option_help_info(["--foo"], kwargs)
+    ohi = HelpInfoExtracter("").get_option_help_info(OptionInfo(("--foo",), kwargs))
     assert ohi.choices == ("info", "debug")
 
 
@@ -202,7 +208,13 @@ def test_grouping():
 
         registrar = OptionRegistrar(scope=GlobalOptions.options_scope)
         native_parser = NativeOptionParser(
-            [], {}, [], allow_pantsrc=False, include_derivation=True, known_scopes_to_flags={}
+            [],
+            {},
+            [],
+            allow_pantsrc=False,
+            include_derivation=True,
+            known_scopes_to_flags={},
+            known_goals=[],
         )
         registrar.register("--foo", **kwargs)
         oshi = HelpInfoExtracter("").get_option_scope_help_info(
@@ -258,26 +270,24 @@ def test_get_all_help_info(tmp_path) -> None:
         core_fields = (QuxField, QuuxField)
 
     config_path = "pants.test.toml"
-    config_source = SimpleNamespace(path=config_path, content=b"[GLOBAL]\nopt1 = '+[99]'")
+    config_source = FileContent(path=config_path, content=b"[GLOBAL]\nopt1 = '+[99]'")
     options = Options.create(
-        env={"PANTS_OPT1": "88"},
-        config=Config.load([config_source]),
-        native_options_config_discovery=False,
-        known_scope_infos=[Global.get_scope_info(), Foo.get_scope_info(), Bar.get_scope_info()],
         args=["./pants", "--backend-packages=['internal_plugins.releases']"],
-        bootstrap_option_values=None,
+        env={"PANTS_OPT1": "88"},
+        config_sources=[config_source],
+        known_scope_infos=[Global.get_scope_info(), Foo.get_scope_info(), Bar.get_scope_info()],
         include_derivation=True,
     )
-    Global.register_options_on_scope(options, UnionMembership({}))
-    Foo.register_options_on_scope(options, UnionMembership({}))
-    Bar.register_options_on_scope(options, UnionMembership({}))
+    Global.register_options_on_scope(options, UnionMembership.empty())
+    Foo.register_options_on_scope(options, UnionMembership.empty())
+    Bar.register_options_on_scope(options, UnionMembership.empty())
 
     @rule
-    def rule_info_test(foo: Foo) -> Target:  # type: ignore[empty-body]
+    async def rule_info_test(foo: Foo) -> Target:  # type: ignore[empty-body]
         """This rule is for testing info extraction only."""
         ...
 
-    def fake_consumed_scopes_mapper(scope: str) -> Tuple[str, ...]:
+    def fake_consumed_scopes_mapper(scope: str) -> tuple[str, ...]:
         return ("somescope", f"used_by_{scope or 'GLOBAL_SCOPE'}")
 
     bc_builder = BuildConfiguration.Builder()
@@ -287,7 +297,7 @@ def test_get_all_help_info(tmp_path) -> None:
 
     all_help_info = HelpInfoExtracter.get_all_help_info(
         options,
-        UnionMembership({}),
+        UnionMembership.empty(),
         fake_consumed_scopes_mapper,
         RegisteredTargetTypes({BazLibrary.alias: BazLibrary}),
         BuildFileSymbolsInfo.from_info(
@@ -530,7 +540,9 @@ def test_get_all_help_info(tmp_path) -> None:
             "construct_scope_foo": {
                 "description": None,
                 "documentation": "A foo.",
-                "awaitables": ("Get(ScopedOptions, Scope, ..)",),
+                "awaitables": (
+                    "pants.engine.internals.options_parsing.scope_options() -> ScopedOptions",
+                ),
                 "input_types": (),
                 "name": "construct_scope_foo",
                 "output_type": "Foo",
@@ -547,20 +559,6 @@ def test_get_all_help_info(tmp_path) -> None:
             },
         },
         "name_to_api_type_info": {
-            "pants.option.scope.Scope": {
-                "consumed_by_rules": (),
-                "dependents": (),
-                "dependencies": (),
-                "documentation": "An options scope.",
-                "is_union": False,
-                "module": "pants.option.scope",
-                "name": "Scope",
-                "provider": ("pants.option.scope",),
-                "returned_by_rules": (),
-                "union_members": (),
-                "union_type": None,
-                "used_in_rules": ("construct_scope_foo",),
-            },
             "pants.engine.target.Target": {
                 "consumed_by_rules": (),
                 "dependents": (),
@@ -801,6 +799,6 @@ def test_pretty_print_type_hint() -> None:
         f"{__name__}.{test_pretty_print_type_hint.__name__}.<locals>.{ExampleCls.__name__}"
     )
     assert (
-        pretty_print_type_hint(Union[Iterable[List[ExampleCls]], Optional[float], Any])
-        == f"Iterable[List[{example_cls_repr}]] | float | None | Any"
+        pretty_print_type_hint(Union[Iterable[list[ExampleCls]], Optional[float], Any])
+        == f"Iterable[list[{example_cls_repr}]] | float | None | Any"
     )

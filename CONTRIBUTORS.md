@@ -1,5 +1,6 @@
 Created as part of the release process.
 
++ 0xG0nz0
 + A. Alonso Dominguez
 + APL
 + Aaron Mitchell
@@ -29,6 +30,7 @@ Created as part of the release process.
 + Bardur Arantsson
 + Bastian Wegge
 + Ben Limmer
++ Ben Wilen
 + Benjamin Dabelow
 + Benjy Weinberger
 + Berkay Öztürk
@@ -66,11 +68,13 @@ Created as part of the release process.
 + Constantin Ponfick
 + Craig Schertz
 + Cristian Matache
++ D. Luke Nelson
 + Damon Revoe
 + Dan Davydov
 + Dan Fabulich
 + Dan Harrison
 + Daniel Anderson
++ Daniel Beck
 + Daniel Bentley
 + Daniel Cavazos
 + Daniel Goldman
@@ -78,6 +82,7 @@ Created as part of the release process.
 + Daniel Peebles
 + Daniel Wagner-Hall
 + Danny McClanahan
++ Darren Clark
 + Dave Brewster
 + David Katz
 + David Singleton
@@ -109,17 +114,20 @@ Created as part of the release process.
 + Facetoe
 + Fatin H
 + Fedor Korotkov
++ Felix Scherz
 + Filip Nikolovski
 + Fiona Condone
 + Flo
 + Florian Leibert
 + Fredrik Ekholdt
++ Fredrik Wärnsberg
 + Gabriel Gonzalez
 + Garrett Malmquist
 + Gary M. Josack
 + Gautham Nair
 + Gerald Spencer
 + Gordon Cassie
++ Greg Fast
 + Greg Niemann
 + Greg Shuflin
 + Gregory Borodin
@@ -145,6 +153,7 @@ Created as part of the release process.
 + Jack Zhao
 + Jackson Davis
 + Jacob Floyd
++ Jake
 + Jake Donham
 + Jake Zerrer
 + Jakub Bujny
@@ -190,6 +199,8 @@ Created as part of the release process.
 + Jovial Joe Jayarson
 + Julio Batista Silva
 + Justin Trobec
++ Kacper
++ Kacper Krylowicz
 + KadenAgrey
 + Karin Lundberg
 + Kaushik Srenevasan
@@ -202,6 +213,7 @@ Created as part of the release process.
 + Kris Wilson
 + Krishna Vudata
 + Krishnan Chandra
++ Kristian Tashkov
 + Kushal Dave
 + Kyle Derr
 + Kyujin Cho
@@ -236,6 +248,7 @@ Created as part of the release process.
 + Mateo Rodriguez
 + Mathew Jennings
 + Mathieu Sabourin
++ Matt Alexander
 + Matt Dee
 + Matt Landis
 + Matt Olsen
@@ -311,6 +324,7 @@ Created as part of the release process.
 + SergeKireev
 + Sergey Serebryakov
 + Seve Martinez
++ Shaked Kaplan
 + Shane Delmore
 + Shantanu Kumar
 + Shuo Li
@@ -335,6 +349,7 @@ Created as part of the release process.
 + Tim Gates
 + Tim Nielens
 + Tim Treptow
++ Tim Werner
 + Timur Abishev
 + Tina Huang
 + Tobias Nilsson
@@ -350,10 +365,12 @@ Created as part of the release process.
 + Travis Crawford
 + Troy Howard
 + Tushar Singh
++ Tyler Rhodes
 + Ugo Di Girolamo
 + Ulugbek Adilbekov
 + Viktor Kleen
 + Vincent Tavernier
++ Vito Laurenza
 + Walter Scheper
 + Wei An
 + Wilhelmina Drengwitz
@@ -375,18 +392,23 @@ Created as part of the release process.
 + csqzhang
 + csteiner
 + eugene yokota
++ fabric-peter
 + gyudoza
 + hephex
 + jgartdele/del
 + lukevmorris
++ nikhila-dwarakanath-zocdoc
 + offsetcyan
 + okcleary
 + olivercoleman-switchdin
++ peter-woyzbun
 + philipp-sontag-by
 + purajit
 + ravi2024sk
 + sww
 + twunderlich-grapl
++ vladislav doster
 + wimax-grapl
 + yjabri
++ Éric Jacob
 + Ólafur Páll Geirsson

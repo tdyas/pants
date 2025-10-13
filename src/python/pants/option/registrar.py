@@ -7,9 +7,10 @@ import copy
 import inspect
 import logging
 import typing
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any
 
 from pants.base.deprecated import validate_deprecation_semver
 from pants.option.custom_types import (
@@ -38,6 +39,7 @@ from pants.option.errors import (
     RegistrationError,
 )
 from pants.option.native_options import parse_dest
+from pants.option.option_types import OptionInfo
 from pants.option.ranked_value import RankedValue
 from pants.option.scope import GLOBAL_SCOPE
 
@@ -113,19 +115,19 @@ class OptionRegistrar:
         prefix = f"{self.scope}-" if self.scope != GLOBAL_SCOPE else ""
         return frozenset(f"--{prefix}{arg.lstrip('--')}" for arg in self._known_args)
 
-    def option_registrations_iter(self):
+    def option_registrations_iter(self) -> Iterator[OptionInfo]:
         """Returns an iterator over the normalized registration arguments of each option in this
         registrar.
 
         Useful for generating help and other documentation.
 
-        Each yielded item is an (args, kwargs) pair, as passed to register(), except that kwargs
-        will be normalized to always have 'dest' and 'default' explicitly set.
+        Each yielded item is an OptionInfo containing the args and kwargs as passed to register(),
+        except that kwargs will be normalized to always have 'dest' and 'default' explicitly set.
         """
 
         def normalize_kwargs(orig_args, orig_kwargs):
             nkwargs = copy.copy(orig_kwargs)
-            dest = parse_dest(*orig_args, **nkwargs)
+            dest = parse_dest(OptionInfo(orig_args, nkwargs))
             nkwargs["dest"] = dest
             if "default" not in nkwargs:
                 type_arg = nkwargs.get("type", str)
@@ -139,7 +141,7 @@ class OptionRegistrar:
         # Yield our directly-registered options.
         for args, kwargs in self._option_registrations:
             normalized_kwargs = normalize_kwargs(args, kwargs)
-            yield args, normalized_kwargs
+            yield OptionInfo(args, normalized_kwargs)
 
     def register(self, *args, **kwargs) -> None:
         """Register an option."""

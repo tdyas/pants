@@ -6,15 +6,22 @@
     },
     "features": {
       "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+      "ghcr.io/devcontainers/features/go:1": {},
+      "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+        "minikube": "none"
+      },
       "ghcr.io/devcontainers/features/python:1": {
-        "version": "3.11.10"
+        "version": "3.11.11"
+      },
+      "ghcr.io/devcontainers/features/rust:1": {
+        "profile": "complete"
       },
       "ghcr.io/stuartleeks/dev-container-features/shell-history:0": {}
     },
     "customizations": {
       "vscode": {
         "extensions": [
-          // VS Code extensions installed by the Python feature.
+          // These following VS Code extensions are installed by the Python feature.
           // See: https://github.com/devcontainers/features/tree/main/src/python#vs-code-extensions
           // "ms-python.python",
           // "ms-python.vscode-pylance",
@@ -37,12 +44,13 @@
             "editor.defaultFormatter": "rust-lang.rust-analyzer",
             "editor.formatOnSave": true
           },
+          "dev.containers.dockerCredentialHelper": false,
           "python.analysis.extraPaths": ["src/python"],
           "black-formatter.args": ["--config=pyproject.toml"],
           "flake8.args": ["--config=build-support/flake8/.flake8"],
-          "flake8.path": ["dist/export/python/virtualenvs/flake8/3.11.10/bin/flake8"],
+          "flake8.path": ["dist/export/python/virtualenvs/flake8/3.11.11/bin/flake8"],
           "mypy-type-checker.args": ["--config-file=pyproject.toml"],
-          "mypy-type-checker.path": ["dist/export/python/virtualenvs/mypy/3.11.10/bin/mypy"],
+          "mypy-type-checker.path": ["dist/export/python/virtualenvs/mypy/3.11.11/bin/mypy"],
           "rust-analyzer.linkedProjects": ["src/rust/engine/Cargo.toml"]
         }
       }
@@ -71,6 +79,7 @@
         "type": "volume"
       }
     ],
+    "onCreateCommand": ".devcontainer/onCreateCommand.sh",
     "postCreateCommand": ".devcontainer/postCreateCommand.sh",
     "postStartCommand": ".devcontainer/postStartCommand.sh"
   }

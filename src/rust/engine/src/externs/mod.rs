@@ -4,20 +4,20 @@
 // File-specific allowances to silence internal warnings of `[pyclass]`.
 #![allow(clippy::used_underscore_binding)]
 
-use futures::future::{BoxFuture, Future};
 use futures::FutureExt;
-use lazy_static::lazy_static;
+use futures::future::{BoxFuture, Future};
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
+use pyo3::FromPyObject;
 use pyo3::exceptions::{PyAssertionError, PyException, PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::sync::GILProtected;
+use pyo3::sync::MutexExt;
 use pyo3::types::{PyBool, PyBytes, PyDict, PySequence, PyString, PyTuple, PyType};
-use pyo3::FromPyObject;
 use pyo3::{create_exception, import_exception, intern};
-use smallvec::{smallvec, SmallVec};
-use std::cell::{Ref, RefCell};
+use smallvec::{SmallVec, smallvec};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-use std::fmt;
+use std::sync::LazyLock;
+use std::{env, fmt};
 
 use logging::PythonLogLevel;
 use rule_graph::RuleId;
@@ -40,6 +40,7 @@ pub mod scheduler;
 mod stdio;
 mod target;
 pub mod testutil;
+mod unions;
 pub mod workunits;
 
 pub fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -87,7 +88,7 @@ pub fn equals(h1: &Bound<'_, PyAny>, h2: &Bound<'_, PyAny>) -> bool {
     // between non-equal types to avoid legacy behavior like `assert True == 1`, which is very
     // surprising in interning, and would likely be surprising anywhere else in the engine where we
     // compare things.
-    if !h1.get_type().is(&h2.get_type()) {
+    if !h1.get_type().is(h2.get_type()) {
         return false;
     }
     h1.eq(h2).unwrap()
@@ -108,7 +109,7 @@ pub fn is_union(py: Python, v: &Bound<'_, PyType>) -> PyResult<bool> {
 
 /// If the given type is a @union, return its in-scope types.
 ///
-/// This function is also implemented in Python as `pants.engine.union.union_in_scope_types`.
+/// This function is also implemented in Python as `pants.engine.unions.union_in_scope_types`.
 pub fn union_in_scope_types<'py>(
     py: Python<'py>,
     v: &Bound<'py, PyType>,
@@ -186,7 +187,7 @@ where
 }
 
 ///
-/// Collect the Values contained within an outer Python Iterable PyObject.
+/// Collect the Values contained within an outer Python Iterable Py<PyAny>.
 ///
 pub fn collect_iterable<'py>(value: &Bound<'py, PyAny>) -> Result<Vec<Bound<'py, PyAny>>, String> {
     match value.try_iter() {
@@ -376,8 +377,8 @@ pub(crate) fn generator_send(
         Ok(GeneratorResponse::All(gogs))
     } else {
         Err(PyValueError::new_err(format!(
-      "Async @rule error. Expected a rule query such as `Get(..)` or similar, but got: {response}"
-    )))
+            "Async @rule error. Expected a rule query such as `Get(..)` or similar, but got: {response}"
+        )))
     };
 
     Ok(result?)
@@ -400,9 +401,7 @@ pub fn unsafe_call(py: Python, type_id: TypeId, args: &[Value]) -> Value {
     Value::from(&res)
 }
 
-lazy_static! {
-    pub static ref INTERNS: Interns = Interns::new();
-}
+pub static INTERNS: LazyLock<Interns> = LazyLock::new(Interns::new);
 
 /// Interprets the `Get` and `implicitly(..)` syntax, which reduces to two optional positional
 /// arguments, and results in input types and inputs.
@@ -472,9 +471,9 @@ fn interpret_get_inputs(
             let actual_type = input_arg1.get_type();
             if !declared_type.is(&actual_type) && !is_union(py, declared_type)? {
                 return Err(PyTypeError::new_err(format!(
-          "Invalid Get. The third argument `{input_arg1}` must have the exact same type as the \
+                    "Invalid Get. The third argument `{input_arg1}` must have the exact same type as the \
           second argument, {declared_type}, but had the type {actual_type}."
-        )));
+                )));
             }
 
             Ok((
@@ -486,19 +485,16 @@ fn interpret_get_inputs(
 }
 
 #[pyclass]
-pub struct PyGeneratorResponseNativeCall(GILProtected<RefCell<Option<NativeCall>>>);
+pub struct PyGeneratorResponseNativeCall(Mutex<Option<NativeCall>>);
 
 impl PyGeneratorResponseNativeCall {
     pub fn new(call: impl Future<Output = Result<Value, Failure>> + 'static + Send) -> Self {
-        Self(GILProtected::new(RefCell::new(Some(NativeCall {
-            call: call.boxed(),
-        }))))
+        Self(Mutex::new(Some(NativeCall { call: call.boxed() })))
     }
 
     fn take(&self, py: Python<'_>) -> Result<NativeCall, String> {
         self.0
-            .get(py)
-            .borrow_mut()
+            .lock_py_attached(py)
             .take()
             .ok_or_else(|| "A `NativeCall` may only be consumed once.".to_owned())
     }
@@ -518,24 +514,31 @@ impl PyGeneratorResponseNativeCall {
         Some(self_)
     }
 
-    fn send(&self, py: Python<'_>, value: PyObject) -> PyResult<()> {
+    fn send(&self, py: Python<'_>, value: Py<PyAny>) -> PyResult<()> {
         let args = PyTuple::new(py, [value])?.into_pyobject(py)?.unbind();
         Err(PyStopIteration::new_err(args))
     }
 }
 
 #[pyclass(subclass)]
-pub struct PyGeneratorResponseCall(GILProtected<RefCell<Option<Call>>>);
+pub struct PyGeneratorResponseCall(RwLock<Option<Call>>);
 
 impl PyGeneratorResponseCall {
-    fn borrow_inner<'py>(&'py self, py: Python<'py>) -> PyResult<Ref<'py, Call>> {
-        let inner: Ref<'py, _> = self.0.get(py).borrow();
+    fn borrow_inner<'py>(
+        &'py self,
+        _py: Python<'py>,
+    ) -> PyResult<MappedRwLockReadGuard<'py, Call>> {
+        // TODO: This may deadlock with the GIL. The `read_py_attached` extenstion method available in
+        // https://github.com/PyO3/pyo3/pull/5435 should be used once available in PyO3.
+        let read_guard = self.0.read();
 
-        Ref::filter_map(inner, |o: &Option<Call>| o.as_ref()).map_err(|_| {
-            PyException::new_err(
+        if read_guard.is_some() {
+            Ok(RwLockReadGuard::map(read_guard, |g| g.as_ref().unwrap()))
+        } else {
+            Err(PyException::new_err(
                 "A `Call` may not be consumed after being provided to the @rule engine.",
-            )
-        })
+            ))
+        }
     }
 }
 
@@ -564,14 +567,22 @@ impl PyGeneratorResponseCall {
         };
         let (input_types, inputs) = interpret_get_inputs(py, input_arg0, input_arg1)?;
 
-        Ok(Self(GILProtected::new(RefCell::new(Some(Call {
+        Ok(Self(RwLock::new(Some(Call {
             rule_id: RuleId::from_string(rule_id),
             output_type,
             args,
             args_arity,
             input_types,
             inputs,
-        })))))
+        }))))
+    }
+
+    #[getter]
+    fn rule_id(&self, py: Python) -> PyResult<String> {
+        // TODO: Currently this is only called in test infrastructure (specifically, by
+        // rule_runner.py). But if this ends up being used in a performance sensitive
+        // code path, consider denormalizing the rule_id to avoid this copy.
+        Ok(self.borrow_inner(py)?.rule_id.as_str().to_owned())
     }
 
     #[getter]
@@ -590,9 +601,9 @@ impl PyGeneratorResponseCall {
     }
 
     #[getter]
-    fn inputs(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn inputs(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         let inner = self.borrow_inner(py)?;
-        let args: Vec<PyObject> = inner.args.as_ref().map_or_else(
+        let args: Vec<Py<PyAny>> = inner.args.as_ref().map_or_else(
             || Ok(Vec::default()),
             |args| args.to_py_object().extract(py),
         )?;
@@ -604,10 +615,11 @@ impl PyGeneratorResponseCall {
 }
 
 impl PyGeneratorResponseCall {
-    fn take(&self, py: Python<'_>) -> Result<Call, String> {
+    fn take(&self, _py: Python<'_>) -> Result<Call, String> {
+        // TODO: The write lock may deadlock with the GIL. The `write_py_attached` extenstion method available in
+        // https://github.com/PyO3/pyo3/pull/5435 should be used once available in PyO3.
         self.0
-            .get(py)
-            .borrow_mut()
+            .write()
             .take()
             .ok_or_else(|| "A `Call` may only be consumed once.".to_owned())
     }
@@ -615,13 +627,12 @@ impl PyGeneratorResponseCall {
 
 // Contains a `RefCell<Option<Get>>` in order to allow us to `take` the content without cloning.
 #[pyclass(subclass)]
-pub struct PyGeneratorResponseGet(GILProtected<RefCell<Option<Get>>>);
+pub struct PyGeneratorResponseGet(Mutex<Option<Get>>);
 
 impl PyGeneratorResponseGet {
     fn take(&self, py: Python<'_>) -> Result<Get, String> {
         self.0
-            .get(py)
-            .borrow_mut()
+            .lock_py_attached(py)
             .take()
             .ok_or_else(|| "A `Get` may only be consumed once.".to_owned())
     }
@@ -637,6 +648,14 @@ impl PyGeneratorResponseGet {
         input_arg0: Option<Bound<'_, PyAny>>,
         input_arg1: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        if ["1", "t", "true"].contains(
+            &env::var("PANTS_DISABLE_GETS")
+                .map(|s| s.to_lowercase())
+                .unwrap_or("".to_string())
+                .as_str(),
+        ) {
+            panic!("Get() is disabled!");
+        }
         let product = product.downcast::<PyType>().map_err(|_| {
             let actual_type = product.get_type();
             PyTypeError::new_err(format!(
@@ -648,19 +667,18 @@ impl PyGeneratorResponseGet {
 
         let (input_types, inputs) = interpret_get_inputs(py, input_arg0, input_arg1)?;
 
-        Ok(Self(GILProtected::new(RefCell::new(Some(Get {
+        Ok(Self(Mutex::new(Some(Get {
             output,
             input_types,
             inputs,
-        })))))
+        }))))
     }
 
     #[getter]
     fn output_type<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyType>> {
         Ok(self
             .0
-            .get(py)
-            .borrow()
+            .lock_py_attached(py)
             .as_ref()
             .ok_or_else(|| {
                 PyException::new_err(
@@ -675,8 +693,7 @@ impl PyGeneratorResponseGet {
     fn input_types<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyType>>> {
         Ok(self
             .0
-            .get(py)
-            .borrow()
+            .lock_py_attached(py)
             .as_ref()
             .ok_or_else(|| {
                 PyException::new_err(
@@ -690,11 +707,10 @@ impl PyGeneratorResponseGet {
     }
 
     #[getter]
-    fn inputs(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn inputs(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         Ok(self
             .0
-            .get(py)
-            .borrow()
+            .lock_py_attached(py)
             .as_ref()
             .ok_or_else(|| {
                 PyException::new_err(
@@ -710,7 +726,7 @@ impl PyGeneratorResponseGet {
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         Ok(format!(
             "{}",
-            self.0.get(py).borrow().as_ref().ok_or_else(|| {
+            self.0.lock_py_attached(py).as_ref().ok_or_else(|| {
                 PyException::new_err(
                     "A `Get` may not be consumed after being provided to the @rule engine.",
                 )

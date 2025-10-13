@@ -3,12 +3,12 @@
 
 use pyo3::exceptions::PyException;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
-use pyo3::{prelude::*, BoundObject};
+use pyo3::{BoundObject, prelude::*};
 
 use options::{
-    apply_dict_edits, apply_list_edits, Args, ConfigSource, DictEdit, DictEditAction, Env,
-    ListEdit, ListEditAction, ListOptionValue, OptionId, OptionParser, OptionalOptionValue, Scope,
-    Source, Val,
+    Args, ConfigSource, DictEdit, DictEditAction, Env, GoalInfo, ListEdit, ListEditAction,
+    ListOptionValue, OptionId, OptionParser, OptionalOptionValue, PantsCommand, Scope, Source, Val,
+    apply_dict_edits, apply_list_edits, bin_name,
 };
 
 use itertools::Itertools;
@@ -16,8 +16,16 @@ use std::collections::{HashMap, HashSet};
 
 pyo3::import_exception!(pants.option.errors, ParseError);
 
+#[pyfunction]
+fn py_bin_name() -> String {
+    bin_name()
+}
+
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(py_bin_name, m)?)?;
+    m.add_class::<PyGoalInfo>()?;
     m.add_class::<PyOptionId>()?;
+    m.add_class::<PyPantsCommand>()?;
     m.add_class::<PyConfigSource>()?;
     m.add_class::<PyOptionParser>()?;
     Ok(())
@@ -25,7 +33,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 // The (nested) values of a dict-valued option are represented by Val.
 // This function converts them to equivalent Python types.
-fn val_to_py_object(py: Python, val: &Val) -> PyResult<PyObject> {
+fn val_to_py_object(py: Python, val: &Val) -> PyResult<Py<PyAny>> {
     let res = match val {
         Val::Bool(b) => b.into_pyobject(py)?.into_any().unbind(),
         Val::Int(i) => i.into_pyobject(py)?.into_any().unbind(),
@@ -56,7 +64,7 @@ fn dict_into_py(py: Python, vals: HashMap<String, Val>) -> PyResult<PyDictVal> {
             Ok(pyobj) => Ok((k, pyobj)),
             Err(err) => Err(err),
         })
-        .collect::<PyResult<HashMap<String, PyObject>>>()
+        .collect::<PyResult<HashMap<String, Py<PyAny>>>>()
 }
 
 // Converts a Python object into a Val, which is necessary for receiving
@@ -114,6 +122,27 @@ pub(crate) fn py_object_to_val(obj: &Bound<'_, PyAny>) -> Result<Val, PyErr> {
 }
 
 #[pyclass]
+struct PyGoalInfo(GoalInfo);
+
+#[pymethods]
+impl PyGoalInfo {
+    #[new]
+    fn __new__(
+        scope_name: &str,
+        is_builtin: bool,
+        is_auxiliary: bool,
+        aliases: Vec<String>,
+    ) -> Self {
+        Self(GoalInfo::new(
+            scope_name,
+            is_builtin,
+            is_auxiliary,
+            aliases.iter().map(String::as_ref),
+        ))
+    }
+}
+
+#[pyclass]
 struct PyOptionId(OptionId);
 
 #[pymethods]
@@ -135,14 +164,39 @@ impl PyOptionId {
             None => None,
             Some(s) => {
                 return Err(ParseError::new_err(format!(
-                    "Switch value should contain a single character, but was: {}",
-                    s
-                )))
+                    "Switch value should contain a single character, but was: {s}"
+                )));
             }
         };
         let option_id =
             OptionId::new(scope, components.into_iter(), switch).map_err(ParseError::new_err)?;
         Ok(Self(option_id))
+    }
+}
+
+#[pyclass]
+struct PyPantsCommand(PantsCommand);
+
+#[pymethods]
+impl PyPantsCommand {
+    fn builtin_or_auxiliary_goal(&self) -> &Option<String> {
+        &self.0.builtin_or_auxiliary_goal
+    }
+
+    fn goals(&self) -> &Vec<String> {
+        &self.0.goals
+    }
+
+    fn unknown_goals(&self) -> &Vec<String> {
+        &self.0.unknown_goals
+    }
+
+    fn specs(&self) -> &Vec<String> {
+        &self.0.specs
+    }
+
+    fn passthru(&self) -> &Option<Vec<String>> {
+        &self.0.passthru
     }
 }
 
@@ -164,7 +218,7 @@ impl PyConfigSource {
 struct PyOptionParser(OptionParser);
 
 // The pythonic value of a dict-typed option.
-type PyDictVal = HashMap<String, PyObject>;
+type PyDictVal = HashMap<String, Py<PyAny>>;
 
 // The derivation of the option value, as a vec of (value, rank, details string) tuples.
 type OptionValueDerivation<'py, T> = Vec<(T, isize, Option<Bound<'py, PyString>>)>;
@@ -346,7 +400,7 @@ impl PyOptionParser {
 #[pymethods]
 impl PyOptionParser {
     #[new]
-    #[pyo3(signature = (args, env, configs, allow_pantsrc, include_derivation, known_scopes_to_flags))]
+    #[pyo3(signature = (args, env, configs, allow_pantsrc, include_derivation, known_scopes_to_flags, known_goals))]
     fn __new__<'py>(
         args: Vec<String>,
         env: &Bound<'py, PyDict>,
@@ -354,6 +408,7 @@ impl PyOptionParser {
         allow_pantsrc: bool,
         include_derivation: bool,
         known_scopes_to_flags: Option<HashMap<String, HashSet<String>>>,
+        known_goals: Option<Vec<Bound<'py, PyGoalInfo>>>,
     ) -> PyResult<Self> {
         let env = env
             .items()
@@ -369,6 +424,7 @@ impl PyOptionParser {
             include_derivation,
             None,
             known_scopes_to_flags.as_ref(),
+            known_goals.map(|gis| gis.iter().map(|gi| gi.borrow().0.clone()).collect()),
         )
         .map_err(ParseError::new_err)?;
         Ok(Self(option_parser))
@@ -501,12 +557,8 @@ impl PyOptionParser {
         ))
     }
 
-    fn get_args(&self) -> PyResult<Vec<String>> {
-        self.0.get_args().map_err(PyException::new_err)
-    }
-
-    fn get_passthrough_args(&self) -> PyResult<Option<Vec<String>>> {
-        self.0.get_passthrough_args().map_err(PyException::new_err)
+    fn get_command(&self) -> PyPantsCommand {
+        PyPantsCommand(self.0.command.clone())
     }
 
     fn get_unconsumed_flags(&self) -> PyResult<HashMap<String, Vec<String>>> {
@@ -528,7 +580,7 @@ impl PyOptionParser {
     fn validate_config(
         &self,
         py: Python<'_>,
-        py_valid_keys: HashMap<String, PyObject>,
+        py_valid_keys: HashMap<String, Py<PyAny>>,
     ) -> PyResult<Vec<String>> {
         let mut valid_keys = HashMap::new();
 

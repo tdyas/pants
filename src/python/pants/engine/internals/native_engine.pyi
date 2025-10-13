@@ -3,26 +3,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from io import RawIOBase
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-    FrozenSet,
-    Generic,
-    Iterable,
-    Mapping,
-    Optional,
-    Protocol,
-    Sequence,
-    TextIO,
-    Tuple,
-    TypeVar,
-    overload,
-)
-
-from typing_extensions import Self
+from typing import Any, ClassVar, Generic, Optional, Protocol, Self, TextIO, TypeVar, overload
 
 from pants.engine.fs import (
     CreateDigest,
@@ -65,9 +49,9 @@ class PyFailure:
 # Address
 # ------------------------------------------------------------------------------
 
-BANNED_CHARS_IN_TARGET_NAME: FrozenSet
-BANNED_CHARS_IN_GENERATED_NAME: FrozenSet
-BANNED_CHARS_IN_PARAMETERS: FrozenSet
+BANNED_CHARS_IN_TARGET_NAME: frozenset
+BANNED_CHARS_IN_GENERATED_NAME: frozenset
+BANNED_CHARS_IN_PARAMETERS: frozenset
 
 def address_spec_parse(
     spec: str,
@@ -164,6 +148,7 @@ class AddressInput:
         directory, i.e. a target which leaves off `name`.
         """
         ...
+
     @property
     def spec(self) -> str: ...
     @property
@@ -179,6 +164,7 @@ class AddressInput:
     def file_to_address(self) -> Address:
         """Converts to an Address by assuming that the path_component is a file on disk."""
         ...
+
     def dir_to_address(self) -> Address:
         """Converts to an Address by assuming that the path_component is a directory on disk."""
         ...
@@ -214,6 +200,7 @@ class Address:
           them, this will always be relative.
         """
         ...
+
     @property
     def spec_path(self) -> str: ...
     @property
@@ -231,6 +218,7 @@ class Address:
     def is_parametrized_subset_of(self, other: Address) -> bool:
         """True if this Address is == to the given Address, but with a subset of its parameters."""
         ...
+
     @property
     def filename(self) -> str: ...
     @property
@@ -245,18 +233,21 @@ class Address:
         "relative" spec notation.
         """
         ...
+
     @property
     def path_safe_spec(self) -> str: ...
     def parametrize(self, parameters: Mapping[str, str], replace: bool = False) -> Address:
         """Creates a new Address with the given `parameters` merged or replaced over
         self.parameters."""
         ...
+
     def maybe_convert_to_target_generator(self) -> Address:
         """If this address is generated or parametrized, convert it to its generator target.
 
         Otherwise, return self unmodified.
         """
         ...
+
     def create_generated(self, generated_name: str) -> Address: ...
     def create_file(self, relative_file_path: str) -> Address: ...
     def debug_hint(self) -> str: ...
@@ -266,6 +257,51 @@ class Address:
     # the stub in order for mypy to accept them as comparable.
     def __lt__(self, other: Any) -> bool: ...
     def __gt__(self, other: Any) -> bool: ...
+
+# ------------------------------------------------------------------------------
+# Union
+# ------------------------------------------------------------------------------
+
+class UnionRule:
+    union_base: type
+    union_member: type
+
+    def __init__(self, union_base: type, union_member: type) -> None: ...
+
+_T = TypeVar("_T", bound=type)
+
+class UnionMembership:
+    @staticmethod
+    def from_rules(rules: Iterable[UnionRule]) -> UnionMembership: ...
+    @staticmethod
+    def empty() -> UnionMembership: ...
+    def __contains__(self, union_type: _T) -> bool: ...
+    def __getitem__(self, union_type: _T) -> Sequence[_T]:
+        """Get all members of this union type.
+
+        If the union type does not exist because it has no members registered, this will raise an
+        IndexError.
+
+        Note that the type hint assumes that all union members will have subclassed the union type
+        - this is only a convention and is not actually enforced. So, you may have inaccurate type
+        hints.
+        """
+
+    def get(self, union_type: _T) -> Sequence[_T]:
+        """Get all members of this union type.
+
+        If the union type does not exist because it has no members registered, return an empty
+        Sequence.
+
+        Note that the type hint assumes that all union members will have subclassed the union type
+        - this is only a convention and is not actually enforced. So, you may have inaccurate type
+        hints.
+        """
+
+    def items(self) -> Iterable[tuple[type, Sequence[type]]]: ...
+    def is_member(self, union_type: type, putative_member: type) -> bool: ...
+    def has_members(self, union_type: type) -> bool:
+        """Check whether the union has an implementation or not."""
 
 # ------------------------------------------------------------------------------
 # Scheduler
@@ -288,6 +324,7 @@ class _NoValue:
     def __bool__(self) -> bool:
         """NB: Always returns `False`."""
         ...
+
     def __repr__(self) -> str: ...
 
 # Marker for unspecified field values that should use the default value if applicable.
@@ -378,11 +415,7 @@ class Field:
 # ------------------------------------------------------------------------------
 
 class Digest:
-    """A Digest is a lightweight reference to a set of files known about by the engine.
-
-    You can use `await Get(Snapshot, Digest)` to see the file names referred to, or use `await
-    Get(DigestContents, Digest)` to see the actual file content.
-    """
+    """A Digest is a lightweight reference to a set of files known about by the engine."""
 
     def __init__(self, fingerprint: str, serialized_bytes_length: int) -> None: ...
     @property
@@ -409,11 +442,8 @@ class Snapshot:
     """A Snapshot is a collection of sorted file paths and dir paths fingerprinted by their
     names/content.
 
-    You can lift a `Digest` to a `Snapshot` with `await Get(Snapshot, Digest, my_digest)`.
-
     The `files` and `dirs` properties are symlink oblivious. If you require knowing about symlinks,
-    you can use the `digest` property to request the `DigestEntries`:
-    `await Get(DigestEntries, Digest, snapshot.digest)`.
+    you can use the `digest` property to request the `DigestEntries`.
     """
 
     @classmethod
@@ -441,12 +471,8 @@ class Snapshot:
 class MergeDigests:
     """A request to merge several digests into one single digest.
 
-    This will fail if there are any conflicting changes, such as two digests having the same
-    file but with different content.
-
-    Example:
-
-        result = await Get(Digest, MergeDigests([digest1, digest2])
+    This will fail if there are any conflicting changes, such as two digests having the same file
+    but with different content.
     """
 
     def __init__(self, digests: Iterable[Digest]) -> None: ...
@@ -455,12 +481,7 @@ class MergeDigests:
     def __repr__(self) -> str: ...
 
 class AddPrefix:
-    """A request to add the specified prefix path to every file and directory in the digest.
-
-    Example:
-
-        result = await Get(Digest, AddPrefix(input_digest, "my_dir")
-    """
+    """A request to add the specified prefix path to every file and directory in the digest."""
 
     def __init__(self, digest: Digest, prefix: str) -> None: ...
     def __eq__(self, other: AddPrefix | Any) -> bool: ...
@@ -472,10 +493,6 @@ class RemovePrefix:
 
     This will fail if there are any files or directories in the original input digest without the
     specified prefix.
-
-    Example:
-
-        result = await Get(Digest, RemovePrefix(input_digest, "my_dir")
     """
 
     def __init__(self, digest: Digest, prefix: str) -> None: ...
@@ -610,6 +627,8 @@ class ProcessExecutionEnvironment:
         remote_execution: bool,
         remote_execution_extra_platform_properties: Sequence[tuple[str, str]],
         execute_in_workspace: bool,
+        # Must be a `KeepSandboxes` value
+        keep_sandboxes: str,
     ) -> None: ...
     def __eq__(self, other: ProcessExecutionEnvironment | Any) -> bool: ...
     def __hash__(self) -> int: ...
@@ -651,10 +670,22 @@ class PantsdClientException(Exception):
 # Options
 # ------------------------------------------------------------------------------
 
+class PyGoalInfo:
+    def __init__(
+        self, scope_name: str, is_builtin: bool, is_auxiliary: bool, aliases: tuple[str, ...]
+    ) -> None: ...
+
 class PyOptionId:
     def __init__(
         self, *components: str, scope: str | None = None, switch: str | None = None
     ) -> None: ...
+
+class PyPantsCommand:
+    def builtin_or_auxiliary_goal(self) -> str | None: ...
+    def goals(self) -> list[str]: ...
+    def unknown_goals(self) -> list[str]: ...
+    def specs(self) -> list[str]: ...
+    def passthru(self) -> list[str]: ...
 
 class PyConfigSource:
     def __init__(self, path: str, content: bytes) -> None: ...
@@ -663,25 +694,28 @@ class PyConfigSource:
 T = TypeVar("T")
 
 # List of tuples of (value, rank, details string).
-OptionValueDerivation = list[Tuple[T, int, str]]
+OptionValueDerivation = list[tuple[T, int, str]]
 
 # A tuple (value, rank of value, optional derivation of value).
-OptionValue = Tuple[Optional[T], int, Optional[OptionValueDerivation]]
+OptionValue = tuple[Optional[T], int, Optional[OptionValueDerivation]]
+
+def py_bin_name() -> str: ...
 
 class PyOptionParser:
     def __init__(
         self,
-        args: Optional[Sequence[str]],
+        args: Sequence[str] | None,
         env: dict[str, str],
-        configs: Optional[Sequence[PyConfigSource]],
+        configs: Sequence[PyConfigSource] | None,
         allow_pantsrc: bool,
         include_derivation: bool,
-        known_scopes_to_flags: Optional[dict[str, frozenset[str]]],
+        known_scopes_to_flags: dict[str, frozenset[str]] | None,
+        known_goals: Sequence[PyGoalInfo] | None,
     ) -> None: ...
-    def get_bool(self, option_id: PyOptionId, default: Optional[bool]) -> OptionValue[bool]: ...
-    def get_int(self, option_id: PyOptionId, default: Optional[int]) -> OptionValue[int]: ...
-    def get_float(self, option_id: PyOptionId, default: Optional[float]) -> OptionValue[float]: ...
-    def get_string(self, option_id: PyOptionId, default: Optional[str]) -> OptionValue[str]: ...
+    def get_bool(self, option_id: PyOptionId, default: bool | None) -> OptionValue[bool]: ...
+    def get_int(self, option_id: PyOptionId, default: int | None) -> OptionValue[int]: ...
+    def get_float(self, option_id: PyOptionId, default: float | None) -> OptionValue[float]: ...
+    def get_string(self, option_id: PyOptionId, default: str | None) -> OptionValue[str]: ...
     def get_bool_list(
         self, option_id: PyOptionId, default: list[bool]
     ) -> OptionValue[list[bool]]: ...
@@ -693,8 +727,7 @@ class PyOptionParser:
         self, option_id: PyOptionId, default: list[str]
     ) -> OptionValue[list[str]]: ...
     def get_dict(self, option_id: PyOptionId, default: dict[str, Any]) -> OptionValue[dict]: ...
-    def get_args(self) -> list[str]: ...
-    def get_passthrough_args(self) -> Optional[list[str]]: ...
+    def get_command(self) -> PyPantsCommand: ...
     def get_unconsumed_flags(self) -> dict[str, list[str]]: ...
     def validate_config(self, valid_keys: dict[str, set[str]]) -> list[str]: ...
 
@@ -713,6 +746,8 @@ class PyStubCAS:
     @property
     def address(self) -> str: ...
     def remove(self, digest: FileDigest | Digest) -> bool: ...
+    def contains(self, digest: FileDigest | Digest) -> bool: ...
+    def contains_action_result(self, digest: FileDigest | Digest) -> bool: ...
     def action_cache_len(self) -> int: ...
 
 # ------------------------------------------------------------------------------
@@ -738,10 +773,6 @@ class NativeDependenciesRequest:
     * Depending on the implementation, a `metadata` structure
       can be passed. It will be supplied to the native parser, and
       it will be incorporated into the cache key.
-
-
-    Example:
-        result = await Get(NativeParsedPythonDependencies, NativeDependenciesRequest(input_digest, None)
     """
 
     def __init__(self, digest: Digest, metadata: InferenceMetadata | None = None) -> None: ...
@@ -823,7 +854,13 @@ def tasks_task_begin(
 ) -> None: ...
 def tasks_task_end(tasks: PyTasks) -> None: ...
 def tasks_add_call(
-    tasks: PyTasks, output: type, inputs: Sequence[type], rule_id: str, explicit_args_arity: int
+    tasks: PyTasks,
+    output: type,
+    inputs: Sequence[type],
+    rule_id: str,
+    explicit_args_arity: int,
+    vtable_entries: Sequence[tuple[type, str]] | None,
+    in_scope_types: Sequence[type] | None,
 ) -> None: ...
 def tasks_add_get(tasks: PyTasks, output: type, inputs: Sequence[type]) -> None: ...
 def tasks_add_get_union(
@@ -845,6 +882,7 @@ def scheduler_create(
     tasks: PyTasks,
     types: PyTypes,
     build_root: str,
+    pants_workdir: str,
     local_execution_root_dir: str,
     named_caches_dir: str,
     ignore_patterns: Sequence[str],
@@ -901,7 +939,7 @@ def rule_subgraph_visualize(
 def garbage_collect_store(scheduler: PyScheduler, target_size_bytes: int) -> None: ...
 def lease_files_in_graph(scheduler: PyScheduler, session: PySession) -> None: ...
 def strongly_connected_components(
-    adjacency_lists: Sequence[Tuple[Any, Sequence[Any]]]
+    adjacency_lists: Sequence[tuple[Any, Sequence[Any]]],
 ) -> Sequence[Sequence[Any]]: ...
 def hash_prefix_zero_bits(item: str) -> int: ...
 
@@ -913,6 +951,7 @@ _Output = TypeVar("_Output")
 _Input = TypeVar("_Input")
 
 class PyGeneratorResponseCall:
+    rule_id: str
     output_type: type
     input_types: Sequence[type]
     inputs: Sequence[Any]

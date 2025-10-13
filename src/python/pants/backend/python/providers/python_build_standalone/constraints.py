@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import operator
-from typing import Callable, Iterable, Protocol, cast
+from collections.abc import Callable, Iterable
+from typing import Protocol, cast
 
 from packaging.version import Version
 
@@ -23,8 +24,7 @@ class ConstraintParseError(Exception):
 
 
 class ConstraintSatisfied(Protocol):
-    def is_satisified(self, version: Version) -> bool:
-        ...
+    def is_satisified(self, version: Version) -> bool: ...
 
 
 class Constraint(ConstraintSatisfied):

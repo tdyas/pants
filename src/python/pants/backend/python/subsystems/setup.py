@@ -6,7 +6,8 @@ from __future__ import annotations
 import enum
 import logging
 import os
-from typing import Iterable, List, Optional, TypeVar, cast
+from collections.abc import Iterable
+from typing import Optional, TypeVar, cast
 
 from packaging.utils import canonicalize_name
 
@@ -102,7 +103,7 @@ class PythonSetup(Subsystem):
             #  We'll probably want to find and modify all those tests to set an explicit IC, but
             #  that will take time.
             if "PYTEST_CURRENT_TEST" in os.environ:
-                return (">=3.8,<4",)
+                return (">=3.9,<3.14",)
             raise OptionsError(
                 softwrap(
                     f"""\
@@ -154,7 +155,7 @@ class PythonSetup(Subsystem):
             interpreter constraints, update `[python].interpreter_constraints`, the
             `interpreter_constraints` field, and relevant tool options like
             `[isort].interpreter_constraints` to tell Pants which interpreters your code
-            actually uses. See {doc_url('docs/python/overview/interpreter-compatibility')}.
+            actually uses. See {doc_url("docs/python/overview/interpreter-compatibility")}.
 
             All elements must be the minor and major Python version, e.g. `'2.7'` or `'3.10'`. Do
             not include the patch version.
@@ -243,6 +244,18 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
+    separate_lockfile_metadata_file = BoolOption(
+        advanced=True,
+        default=False,
+        help=softwrap(
+            """
+            If set, lockfile metadata will be written to a separate sibling file, rather than
+            prepended as a header to the lockfile (which has various disadvantages).
+            This will soon become True by default and eventually the header option will be
+            deprecated and then removed.
+            """
+        ),
+    )
     default_run_goal_use_sandbox = BoolOption(
         default=True,
         help=softwrap(
@@ -267,7 +280,7 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
-    _resolves_to_interpreter_constraints = DictOption[List[str]](
+    _resolves_to_interpreter_constraints = DictOption[list[str]](
         help=softwrap(
             """
             Override the interpreter constraints to use when generating a resolve's lockfile
@@ -315,7 +328,7 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
-    _resolves_to_no_binary = DictOption[List[str]](
+    _resolves_to_no_binary = DictOption[list[str]](
         help=softwrap(
             f"""
             When generating a resolve's lockfile, do not use binary packages (i.e. wheels) for
@@ -339,7 +352,7 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
-    _resolves_to_only_binary = DictOption[List[str]](
+    _resolves_to_only_binary = DictOption[list[str]](
         help=softwrap(
             f"""
             When generating a resolve's lockfile, do not use source packages (i.e. sdists) for
@@ -363,6 +376,38 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
+    _resolves_to_excludes = DictOption[list[str]](
+        help=softwrap(
+            """ Specifies requirements to exclude from a resolve and its
+            lockfile.  Any distribution included in the PEX's resolve that
+            matches the requirement is excluded from the built PEX along with
+            all of its transitive dependencies that are not also required by
+            other non-excluded distributions.  At runtime, the PEX will boot
+            without checking the excluded dependencies are available.
+            """
+        ),
+        advanced=True,
+    )
+    _resolves_to_overrides = DictOption[list[str]](
+        help=softwrap(
+            """ Specifies a transitive requirement to override in a resolve
+            and its lockfile.  Overrides can either modify an existing
+            dependency on a project name by changing extras, version
+            constraints or markers or else they can completely swap out the
+            dependency for a dependency on another project altogether. For the
+            former, simply supply the requirement you wish. For example,
+            specifying `--override cowsay==5.0` will override any transitive
+            dependency on cowsay that has any combination of extras, version
+            constraints or markers with the requirement `cowsay==5.0`. To
+            completely replace cowsay with another library altogether, you can
+            specify an override like `--override cowsay=my-cowsay>2`. This
+            will replace any transitive dependency on cowsay that has any
+            combination of extras, version constraints or markers with the
+            requirement `my-cowsay>2`."""
+        ),
+        advanced=True,
+    )
+
     invalid_lockfile_behavior = EnumOption(
         default=InvalidLockfileBehavior.error,
         help=softwrap(
@@ -672,6 +717,26 @@ class PythonSetup(Subsystem):
             for resolve, vals in self._resolves_to_option_helper(
                 self._resolves_to_only_binary,
                 "resolves_to_only_binary",
+            ).items()
+        }
+
+    @memoized_method
+    def resolves_to_excludes(self) -> dict[str, list[str]]:
+        return {
+            resolve: sorted(vals)
+            for resolve, vals in self._resolves_to_option_helper(
+                self._resolves_to_excludes,
+                "resolves_to_excludes",
+            ).items()
+        }
+
+    @memoized_method
+    def resolves_to_overrides(self) -> dict[str, list[str]]:
+        return {
+            resolve: sorted(vals)
+            for resolve, vals in self._resolves_to_option_helper(
+                self._resolves_to_overrides,
+                "resolves_to_overrides",
             ).items()
         }
 

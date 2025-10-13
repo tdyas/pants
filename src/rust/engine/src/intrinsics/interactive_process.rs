@@ -8,20 +8,20 @@ use std::str::FromStr;
 
 use futures::future::TryFutureExt;
 use process_execution::local::{
-    apply_chroot, create_sandbox, prepare_workdir, setup_run_sh_script, KeepSandboxes,
+    KeepSandboxes, apply_chroot, create_sandbox, prepare_workdir, setup_run_sh_script,
 };
 use process_execution::{ManagedChild, ProcessExecutionStrategy};
-use pyo3::prelude::{pyfunction, wrap_pyfunction, PyAny, PyModule, PyResult, Python};
+use pyo3::Bound;
+use pyo3::prelude::{PyAny, PyModule, PyResult, Python, pyfunction, wrap_pyfunction};
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyAnyMethods, PyModuleMethods};
-use pyo3::Bound;
 use stdio::TryCloneAsFile;
 use tokio::process;
-use workunit_store::{in_workunit, Level};
+use workunit_store::{Level, in_workunit};
 
 use crate::context::Context;
 use crate::externs::{self, PyGeneratorResponseNativeCall};
-use crate::nodes::{task_get_context, ExecuteProcess, NodeResult};
+use crate::nodes::{ExecuteProcess, NodeResult, task_get_context};
 use crate::python::{Failure, Value};
 
 pub fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -56,7 +56,7 @@ pub async fn interactive_process_inner(
         Value,
         Value,
         externs::process::PyProcessExecutionEnvironment,
-    ) = Python::with_gil(|py| {
+    ) = Python::attach(|py| {
         let py_interactive_process = interactive_process.bind(py);
         let py_process: Value = externs::getattr(py_interactive_process, "process").unwrap();
         let process_config = process_config.bind(py).extract().unwrap();
@@ -81,7 +81,7 @@ pub async fn interactive_process_inner(
     let mut process = ExecuteProcess::lift(&context.core.store(), py_process, process_config)
         .await?
         .process;
-    let (run_in_workspace, keep_sandboxes) = Python::with_gil(|py| {
+    let (run_in_workspace, keep_sandboxes) = Python::attach(|py| {
         let py_interactive_process = py_interactive_process.bind(py);
         let run_in_workspace: bool =
             externs::getattr(py_interactive_process, "run_in_workspace").unwrap();
@@ -110,12 +110,14 @@ pub async fn interactive_process_inner(
         &process,
         process.input_digests.inputs.clone(),
         &context.core.store(),
+        context.core.sandboxer().as_ref(),
         &context.core.named_caches,
         &context.core.immutable_inputs,
         None,
         None,
     )
-    .await?;
+    .await
+    .map_err(|cwe| cwe.to_string())?;
     apply_chroot(tempdir.path().to_str().unwrap(), &mut process);
 
     let p = Path::new(&process.argv[0]);
@@ -176,9 +178,9 @@ pub async fn interactive_process_inner(
       // then wait for it to exit (to avoid zombies).
       if let Err(e) = subprocess.attempt_shutdown_sync() {
         // Failed to kill the PGID: try the non-group form.
-        log::warn!("Failed to kill spawned process group ({}). Will try killing only the top process.\n\
+        log::warn!("Failed to kill spawned process group ({e}). Will try killing only the top process.\n\
                   This is unexpected: please file an issue about this problem at \
-                  [https://github.com/pantsbuild/pants/issues/new]", e);
+                  [https://github.com/pantsbuild/pants/issues/new]");
         subprocess.kill().map_err(|e| format!("Failed to interrupt child process: {e}")).await?;
       };
       subprocess.wait().await.map_err(|e| e.to_string())
@@ -213,7 +215,7 @@ pub async fn interactive_process_inner(
             do_setup_run_sh_script(tempdir.path())?;
         }
     }
-    Ok::<_, Failure>(Python::with_gil(|py| {
+    Ok::<_, Failure>(Python::attach(|py| {
         externs::unsafe_call(
             py,
             interactive_process_result,
