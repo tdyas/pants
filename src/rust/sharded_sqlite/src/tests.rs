@@ -123,7 +123,8 @@ async fn test_remove() {
 
     assert!(store.exists(fingerprint).await.unwrap());
 
-    store.remove(&[fingerprint]).await.unwrap();
+    let removed = store.remove(fingerprint).await.unwrap();
+    assert!(removed);
 
     assert!(!store.exists(fingerprint).await.unwrap());
 }
@@ -146,7 +147,8 @@ async fn test_remove_large_blob() {
     let blob_path = store.blob_path(&fingerprint);
     assert!(blob_path.exists());
 
-    store.remove(&[fingerprint]).await.unwrap();
+    let removed = store.remove(fingerprint).await.unwrap();
+    assert!(removed);
 
     assert!(!store.exists(fingerprint).await.unwrap());
     assert!(!blob_path.exists());

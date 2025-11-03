@@ -24,6 +24,7 @@ remote_provider = { path = "../../remote_provider" }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 sharded_lmdb = { path = "../../sharded_lmdb" }
+sharded_sqlite = { path = "../../sharded_sqlite" }
 task_executor = { path = "../../task_executor" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }

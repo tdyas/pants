@@ -21,9 +21,10 @@
 //! - `leases`: Stores lease expiration timestamps for garbage collection
 
 use bytes::Bytes;
-use hashing::Fingerprint;
+use hashing::{AgedFingerprint, Digest, Fingerprint};
 use log::warn;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -38,15 +39,6 @@ const BLOB_SIZE_THRESHOLD: usize = 100 * 1024;
 
 /// Schema version for the SQLite database.
 const SCHEMA_VERSION: i32 = 1;
-
-/// Represents an aged fingerprint with its expiration status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgedFingerprint {
-    /// The fingerprint of the entry.
-    pub fingerprint: Fingerprint,
-    /// How many seconds ago the lease expired (0 if not expired).
-    pub expired_seconds_ago: u64,
-}
 
 /// SQLite-based local cache storage.
 ///
@@ -325,7 +317,7 @@ impl ShardedSqlite {
             let mut stmt = conn
                 .prepare(
                     r#"
-                    SELECT e.fingerprint, COALESCE(l.lease_until, 0) as lease_until
+                    SELECT e.fingerprint, e.size_bytes, COALESCE(l.lease_until, 0) as lease_until
                     FROM entries e
                     LEFT JOIN leases l ON e.fingerprint = l.fingerprint
                     "#,
@@ -335,14 +327,15 @@ impl ShardedSqlite {
             let results = stmt
                 .query_map([], |row| {
                     let fingerprint_bytes: Vec<u8> = row.get(0)?;
-                    let lease_until: i64 = row.get(1)?;
-                    Ok((fingerprint_bytes, lease_until))
+                    let size_bytes: i64 = row.get(1)?;
+                    let lease_until: i64 = row.get(2)?;
+                    Ok((fingerprint_bytes, size_bytes, lease_until))
                 })
                 .map_err(|e| format!("Failed to query fingerprints: {}", e))?;
 
             let mut aged_fingerprints = Vec::new();
             for result in results {
-                let (fingerprint_bytes, lease_until) = result
+                let (fingerprint_bytes, size_bytes, lease_until) = result
                     .map_err(|e| format!("Failed to read row: {}", e))?;
 
                 let fingerprint = Fingerprint::from_bytes_unsafe(&fingerprint_bytes);
@@ -355,6 +348,7 @@ impl ShardedSqlite {
                 aged_fingerprints.push(AgedFingerprint {
                     fingerprint,
                     expired_seconds_ago,
+                    size_bytes: size_bytes as usize,
                 });
             }
 
@@ -364,57 +358,52 @@ impl ShardedSqlite {
         .map_err(|e| format!("Task join error: {}", e))?
     }
 
-    /// Remove entries by their fingerprints.
-    pub async fn remove(&self, fingerprints: &[Fingerprint]) -> Result<(), String> {
-        if fingerprints.is_empty() {
-            return Ok(());
-        }
-
-        let fingerprint_bytes: Vec<Vec<u8>> = fingerprints
-            .iter()
-            .map(|f| f.as_ref().to_vec())
-            .collect();
+    /// Remove an entry by its fingerprint. Returns true if the entry existed.
+    pub async fn remove(&self, fingerprint: Fingerprint) -> Result<bool, String> {
+        let fingerprint_bytes = fingerprint.as_ref().to_vec();
+        let fingerprint_hex = fingerprint.to_hex();
         let conn = self.conn.clone();
         let blobs_dir = self.blobs_dir.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock().unwrap();
 
-            for fp_bytes in &fingerprint_bytes {
-                // Check if data is stored as a file
-                let has_file: Option<bool> = conn
-                    .query_row(
-                        "SELECT data IS NULL FROM entries WHERE fingerprint = ?1",
-                        params![fp_bytes],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .map_err(|e| format!("Failed to check entry: {}", e))?;
-
-                if let Some(true) = has_file {
-                    // Remove the blob file
-                    let fingerprint = Fingerprint::from_bytes_unsafe(fp_bytes);
-                    let blob_path = blobs_dir.join(fingerprint.to_hex());
-                    if let Err(e) = fs::remove_file(&blob_path) {
-                        warn!("Failed to remove blob file {:?}: {}", blob_path, e);
-                    }
-                }
-
-                // Remove from database
-                conn.execute(
-                    "DELETE FROM entries WHERE fingerprint = ?1",
-                    params![fp_bytes],
+            // Check if entry exists and if data is stored as a file
+            let has_file: Option<bool> = conn
+                .query_row(
+                    "SELECT data IS NULL FROM entries WHERE fingerprint = ?1",
+                    params![&fingerprint_bytes],
+                    |row| row.get(0),
                 )
-                .map_err(|e| format!("Failed to delete entry: {}", e))?;
+                .optional()
+                .map_err(|e| format!("Failed to check entry: {}", e))?;
 
-                conn.execute(
-                    "DELETE FROM leases WHERE fingerprint = ?1",
-                    params![fp_bytes],
-                )
-                .map_err(|e| format!("Failed to delete lease: {}", e))?;
+            if has_file.is_none() {
+                return Ok(false);
             }
 
-            Ok(())
+            if let Some(true) = has_file {
+                // Remove the blob file
+                let blob_path = blobs_dir.join(fingerprint_hex);
+                if let Err(e) = fs::remove_file(&blob_path) {
+                    warn!("Failed to remove blob file {:?}: {}", blob_path, e);
+                }
+            }
+
+            // Remove from database
+            conn.execute(
+                "DELETE FROM entries WHERE fingerprint = ?1",
+                params![&fingerprint_bytes],
+            )
+            .map_err(|e| format!("Failed to delete entry: {}", e))?;
+
+            conn.execute(
+                "DELETE FROM leases WHERE fingerprint = ?1",
+                params![&fingerprint_bytes],
+            )
+            .map_err(|e| format!("Failed to delete lease: {}", e))?;
+
+            Ok(true)
         })
         .await
         .map_err(|e| format!("Task join error: {}", e))?
@@ -439,6 +428,71 @@ impl ShardedSqlite {
         })
         .await
         .map_err(|e| format!("Task join error: {}", e))?
+    }
+
+    /// Check which fingerprints exist in a batch.
+    pub async fn exists_batch(
+        &self,
+        fingerprints: Vec<Fingerprint>,
+    ) -> Result<std::collections::HashSet<Fingerprint>, String> {
+        if fingerprints.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let fingerprint_bytes: Vec<Vec<u8>> = fingerprints
+            .iter()
+            .map(|f| f.as_ref().to_vec())
+            .collect();
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().unwrap();
+            let mut existing = std::collections::HashSet::new();
+
+            for fp_bytes in &fingerprint_bytes {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM entries WHERE fingerprint = ?1",
+                        params![fp_bytes],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| format!("Failed to check existence: {}", e))?;
+
+                if count > 0 {
+                    existing.insert(Fingerprint::from_bytes_unsafe(fp_bytes));
+                }
+            }
+
+            Ok(existing)
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+    }
+
+    /// Store multiple entries in a batch.
+    pub async fn store_bytes_batch(
+        &self,
+        items: Vec<(Fingerprint, Bytes)>,
+        initial_lease: bool,
+    ) -> Result<(), String> {
+        for (fingerprint, bytes) in items {
+            self.store_bytes(fingerprint, bytes, initial_lease).await?;
+        }
+        Ok(())
+    }
+
+    /// Store a file by reading it and storing its bytes.
+    pub async fn store_file(
+        &self,
+        fingerprint: Fingerprint,
+        path: PathBuf,
+        initial_lease: bool,
+    ) -> Result<(), String> {
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
+        self.store_bytes(fingerprint, Bytes::from(bytes), initial_lease)
+            .await
     }
 }
 

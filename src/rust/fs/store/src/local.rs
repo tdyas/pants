@@ -17,6 +17,7 @@ use hashing::{
 };
 use parking_lot::Mutex;
 use sharded_lmdb::ShardedLmdb;
+use sharded_sqlite::ShardedSqlite;
 use std::os::unix::fs::PermissionsExt;
 use task_executor::Executor;
 use tempfile::Builder;
@@ -130,6 +131,59 @@ impl UnderlyingByteStore for ShardedLmdb {
             },
         )
         .await
+    }
+
+    async fn load_bytes_with<
+        T: Send + 'static,
+        F: FnMut(&[u8]) -> Result<T, String> + Send + Sync + 'static,
+    >(
+        &self,
+        fingerprint: Fingerprint,
+        f: F,
+    ) -> Result<Option<T>, String> {
+        self.load_bytes_with(fingerprint, f).await
+    }
+
+    async fn aged_fingerprints(&self) -> Result<Vec<AgedFingerprint>, String> {
+        self.all_fingerprints().await
+    }
+}
+
+#[async_trait]
+impl UnderlyingByteStore for ShardedSqlite {
+    async fn exists_batch(
+        &self,
+        fingerprints: Vec<Fingerprint>,
+    ) -> Result<HashSet<Fingerprint>, String> {
+        self.exists_batch(fingerprints).await
+    }
+
+    async fn lease(&self, fingerprint: Fingerprint) -> Result<(), String> {
+        self.lease(fingerprint).await
+    }
+
+    async fn remove(&self, fingerprint: Fingerprint) -> Result<bool, String> {
+        self.remove(fingerprint).await
+    }
+
+    async fn store_bytes_batch(
+        &self,
+        items: Vec<(Fingerprint, Bytes)>,
+        initial_lease: bool,
+    ) -> Result<(), String> {
+        self.store_bytes_batch(items, initial_lease).await
+    }
+
+    async fn store(
+        &self,
+        initial_lease: bool,
+        _src_is_immutable: bool,
+        expected_digest: Digest,
+        _file_source: &FileSource,
+        src: PathBuf,
+    ) -> Result<(), String> {
+        self.store_file(expected_digest.hash, src, initial_lease)
+            .await
     }
 
     async fn load_bytes_with<
