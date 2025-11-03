@@ -73,13 +73,30 @@ mod remote_tests;
 // Consumers of this crate shouldn't need to worry about the exact crate structure that comes
 // together to make a store.
 pub use cli_options::StoreCliOpt;
+pub use local::{FileSource, UnderlyingByteStore};
 pub use remote_provider::{RemoteProvider, RemoteStoreOptions};
+
+/// Backend to use for local cache storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalStoreBackend {
+    /// Use LMDB (Lightning Memory-Mapped Database) - the current default.
+    Lmdb,
+    /// Use SQLite - may have better compatibility on some filesystems.
+    Sqlite,
+}
+
+impl Default for LocalStoreBackend {
+    fn default() -> Self {
+        LocalStoreBackend::Lmdb
+    }
+}
 
 pub struct LocalOptions {
     pub files_max_size_bytes: usize,
     pub directories_max_size_bytes: usize,
     pub lease_time: Duration,
     pub shard_count: u8,
+    pub backend: LocalStoreBackend,
 }
 
 ///
@@ -93,6 +110,7 @@ impl Default for LocalOptions {
             directories_max_size_bytes: 2 * 4 * GIGABYTES,
             lease_time: DEFAULT_LEASE_TIME,
             shard_count: 16,
+            backend: LocalStoreBackend::default(),
         }
     }
 }

@@ -32,8 +32,9 @@ use workunit_store::ObservationMetric;
 const LARGE_FILE_SIZE_LIMIT: usize = 512 * 1024;
 
 /// Trait for the underlying storage, which is either a ShardedLMDB or a ShardedFS.
+/// This trait abstracts over different storage backends (LMDB, SQLite, etc.)
 #[async_trait]
-trait UnderlyingByteStore {
+pub trait UnderlyingByteStore: Send + Sync + std::fmt::Debug {
     async fn exists_batch(
         &self,
         fingerprints: Vec<Fingerprint>,
@@ -523,7 +524,7 @@ impl UnderlyingByteStore for ShardedFSDB {
 
 /// A best-effort limit on the number of concurrent attempts to open files.
 #[derive(Debug)]
-struct FileSource {
+pub struct FileSource {
     open_files: Semaphore,
 }
 
