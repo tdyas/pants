@@ -40,6 +40,10 @@ const BLOB_SIZE_THRESHOLD: usize = 100 * 1024;
 /// Schema version for the SQLite database.
 const SCHEMA_VERSION: i32 = 1;
 
+/// Default SQLite page size (4KB).
+/// Common values: 4096 (4KB), 8192 (8KB), 16384 (16KB), 32768 (32KB).
+pub const DEFAULT_PAGE_SIZE: u32 = 4096;
+
 /// SQLite-based local cache storage.
 ///
 /// This implementation uses a single SQLite database file with WAL mode
@@ -59,6 +63,9 @@ pub struct ShardedSqlite {
     max_size_bytes: usize,
     /// Lease time for entries.
     lease_time: Duration,
+    /// SQLite page size in bytes.
+    #[allow(dead_code)]
+    page_size: u32,
 }
 
 impl ShardedSqlite {
@@ -69,6 +76,7 @@ impl ShardedSqlite {
     /// * `path` - Base directory for the store
     /// * `max_size_bytes` - Maximum size in bytes for the store
     /// * `lease_time` - Duration for which entries are leased
+    /// * `page_size` - SQLite page size in bytes (must be a power of 2 between 512 and 65536)
     ///
     /// # Returns
     ///
@@ -77,6 +85,7 @@ impl ShardedSqlite {
         path: PathBuf,
         max_size_bytes: usize,
         lease_time: Duration,
+        page_size: u32,
     ) -> Result<Self, String> {
         // Create the base directory if it doesn't exist
         fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -89,8 +98,47 @@ impl ShardedSqlite {
             .map_err(|e| format!("Failed to create blobs directory: {}", e))?;
 
         // Open database connection
-        let conn = Connection::open(&db_path)
+        let mut conn = Connection::open(&db_path)
             .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        // Check if database exists and has a different page size
+        let existing_page_size: Option<u32> = conn
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .ok();
+
+        if let Some(existing) = existing_page_size {
+            if existing != page_size && existing != 0 {
+                // Database exists with different page size - need to recreate
+                warn!(
+                    "Database page size mismatch (existing: {}, requested: {}). Recreating database.",
+                    existing, page_size
+                );
+                drop(conn);
+
+                // Remove old database files
+                let _ = fs::remove_file(&db_path);
+                // SQLite WAL files use -wal and -shm suffixes
+                let mut wal_path = db_path.clone();
+                wal_path.set_extension("db-wal");
+                let _ = fs::remove_file(&wal_path);
+                let mut shm_path = db_path.clone();
+                shm_path.set_extension("db-shm");
+                let _ = fs::remove_file(&shm_path);
+
+                // Remove blobs directory
+                let _ = fs::remove_dir_all(&blobs_dir);
+                fs::create_dir_all(&blobs_dir)
+                    .map_err(|e| format!("Failed to recreate blobs directory: {}", e))?;
+
+                // Reopen database
+                conn = Connection::open(&db_path)
+                    .map_err(|e| format!("Failed to reopen database: {}", e))?;
+            }
+        }
+
+        // Set page size (must be done before any tables are created)
+        conn.pragma_update(None, "page_size", page_size)
+            .map_err(|e| format!("Failed to set page size: {}", e))?;
 
         // Enable WAL mode for better concurrency
         conn.pragma_update(None, "journal_mode", "WAL")
@@ -109,6 +157,7 @@ impl ShardedSqlite {
             conn: Arc::new(Mutex::new(conn)),
             max_size_bytes,
             lease_time,
+            page_size,
         })
     }
 

@@ -10,7 +10,7 @@ use bytes::Bytes;
 use criterion::{criterion_group, BenchmarkId, Criterion, Throughput};
 use hashing::Fingerprint;
 use sharded_lmdb::ShardedLmdb;
-use sharded_sqlite::ShardedSqlite;
+use sharded_sqlite::{ShardedSqlite, DEFAULT_PAGE_SIZE};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,7 +51,13 @@ impl Backend {
     }
 
     fn new_sqlite(path: &std::path::Path, max_size: usize) -> Self {
-        let sqlite = ShardedSqlite::new(path.to_path_buf(), max_size, DEFAULT_LEASE_TIME).unwrap();
+        let sqlite = ShardedSqlite::new(
+            path.to_path_buf(),
+            max_size,
+            DEFAULT_LEASE_TIME,
+            DEFAULT_PAGE_SIZE,
+        )
+        .unwrap();
         Backend::Sqlite(Arc::new(sqlite))
     }
 

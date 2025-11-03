@@ -748,6 +748,7 @@ impl ByteStore {
                 backend_files_root,
                 options.files_max_size_bytes,
                 options.lease_time,
+                options.page_size,
             )
             .map(|sqlite| ByteStoreBackend::Sqlite(Arc::new(sqlite))),
         };
@@ -765,6 +766,7 @@ impl ByteStore {
                 backend_directories_root,
                 options.directories_max_size_bytes,
                 options.lease_time,
+                options.page_size,
             )
             .map(|sqlite| ByteStoreBackend::Sqlite(Arc::new(sqlite))),
         };

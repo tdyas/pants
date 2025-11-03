@@ -352,6 +352,7 @@ fn snapshot_with_backend(
         lease_time: Duration::from_secs(2 * 60 * 60),   // 2 hours
         shard_count: 16,
         backend,
+        page_size: 8192, // 8KB
     };
 
     let store = Store::local_only_with_options(

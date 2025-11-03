@@ -7,11 +7,16 @@ use hashing::Fingerprint;
 use tempfile::TempDir;
 
 fn new_store() -> (ShardedSqlite, TempDir) {
+    new_store_with_page_size(crate::DEFAULT_PAGE_SIZE)
+}
+
+fn new_store_with_page_size(page_size: u32) -> (ShardedSqlite, TempDir) {
     let dir = TempDir::new().unwrap();
     let store = ShardedSqlite::new(
         dir.path().to_path_buf(),
         1024 * 1024 * 1024, // 1GB
         DEFAULT_LEASE_TIME,
+        page_size,
     )
     .unwrap();
     (store, dir)
@@ -170,3 +175,42 @@ async fn test_exists() {
     assert!(store.exists(fingerprint).await.unwrap());
 }
 
+#[tokio::test]
+async fn test_page_size_change_recreates_database() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().to_path_buf();
+
+    // Create store with 4KB page size
+    {
+        let store = ShardedSqlite::new(
+            path.clone(),
+            1024 * 1024 * 1024,
+            DEFAULT_LEASE_TIME,
+            4096,
+        )
+        .unwrap();
+
+        // Store some data
+        let data = Bytes::from("test data");
+        let fingerprint = Fingerprint::from_bytes_unsafe(b"12345678901234567890123456789012");
+        store.store_bytes(fingerprint, data.clone(), false).await.unwrap();
+
+        // Verify it exists
+        assert!(store.exists(fingerprint).await.unwrap());
+    }
+
+    // Recreate store with 8KB page size - should recreate database
+    {
+        let store = ShardedSqlite::new(
+            path.clone(),
+            1024 * 1024 * 1024,
+            DEFAULT_LEASE_TIME,
+            8192,
+        )
+        .unwrap();
+
+        // Data should be gone because database was recreated
+        let fingerprint = Fingerprint::from_bytes_unsafe(b"12345678901234567890123456789012");
+        assert!(!store.exists(fingerprint).await.unwrap());
+    }
+}

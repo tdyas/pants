@@ -32,6 +32,7 @@ fn create_store(backend: LocalStoreBackend, tempdir: &TempDir, immutable_inputs_
         lease_time: Duration::from_secs(2 * 60 * 60),   // 2 hours
         shard_count: 16,
         backend,
+        page_size: 8192, // 8KB
     };
 
     Store::local_only_with_options(executor, tempdir.path(), immutable_inputs_base.path(), options).unwrap()

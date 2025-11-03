@@ -97,6 +97,7 @@ pub struct LocalOptions {
     pub lease_time: Duration,
     pub shard_count: u8,
     pub backend: LocalStoreBackend,
+    pub page_size: u32,
 }
 
 ///
@@ -111,6 +112,7 @@ impl Default for LocalOptions {
             lease_time: DEFAULT_LEASE_TIME,
             shard_count: 16,
             backend: LocalStoreBackend::default(),
+            page_size: 8192, // 8KB page size for SQLite
         }
     }
 }
