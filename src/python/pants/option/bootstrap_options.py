@@ -61,6 +61,13 @@ GIGABYTES = 1_000 * MEGABYTES
 _G = TypeVar("_G", bound="_GlobMatchErrorBehaviorOptionBase")
 
 
+class LocalStoreBackend(Enum):
+    """Which backend to use for the local store."""
+
+    lmdb = "lmdb"
+    sqlite = "sqlite"
+
+
 class RemoteProvider(Enum):
     """Which remote provider to use."""
 
@@ -699,6 +706,7 @@ class LocalStoreOptions:
     files_max_size_bytes: int = 256 * GIGABYTES
     directories_max_size_bytes: int = 16 * GIGABYTES
     shard_count: int = 16
+    backend: LocalStoreBackend = LocalStoreBackend.lmdb
 
     def target_total_size_bytes(self) -> int:
         """Returns the target total size of all of the stores.
@@ -724,6 +732,7 @@ class LocalStoreOptions:
             files_max_size_bytes=options.local_store_files_max_size_bytes,
             directories_max_size_bytes=options.local_store_directories_max_size_bytes,
             shard_count=options.local_store_shard_count,
+            backend=options.local_store_backend,
         )
 
 
@@ -1291,6 +1300,22 @@ class BootstrapOptions:
             """
         ),
         default=DEFAULT_LOCAL_STORE_OPTIONS.directories_max_size_bytes,
+    )
+    local_store_backend = EnumOption(
+        advanced=True,
+        default=DEFAULT_LOCAL_STORE_OPTIONS.backend,
+        help=softwrap(
+            """
+            The backend to use for the local store.
+
+            LMDB is the current default and uses memory-mapped files for storage. SQLite may have
+            better compatibility on some filesystems and stores large blobs (>100KB) as separate
+            files on disk.
+
+            NB: After changing this value, you will likely want to manually clear the
+            `--local-store-dir` directory to clear the space used by the old backend.
+            """
+        ),
     )
     _named_caches_dir = StrOption(
         advanced=True,

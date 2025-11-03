@@ -424,12 +424,22 @@ impl PyLocalStoreOptions {
         directories_max_size_bytes: usize,
         lease_time_millis: u64,
         shard_count: u8,
+        backend: String,
     ) -> PyO3Result<Self> {
         if shard_count.count_ones() != 1 {
             return Err(PyValueError::new_err(format!(
                 "The local store shard count must be a power of two: got {shard_count}"
             )));
         }
+        let backend = match backend.as_str() {
+            "lmdb" => store::LocalStoreBackend::Lmdb,
+            "sqlite" => store::LocalStoreBackend::Sqlite,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid local store backend: {backend}. Must be 'lmdb' or 'sqlite'"
+                )))
+            }
+        };
         Ok(Self(LocalStoreOptions {
             store_dir,
             process_cache_max_size_bytes,
@@ -437,6 +447,7 @@ impl PyLocalStoreOptions {
             directories_max_size_bytes,
             lease_time: Duration::from_millis(lease_time_millis),
             shard_count,
+            backend,
         }))
     }
 }

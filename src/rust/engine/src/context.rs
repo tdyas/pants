@@ -167,6 +167,7 @@ pub struct LocalStoreOptions {
     pub directories_max_size_bytes: usize,
     pub lease_time: Duration,
     pub shard_count: u8,
+    pub backend: store::LocalStoreBackend,
 }
 
 impl From<&LocalStoreOptions> for store::LocalOptions {
@@ -176,6 +177,7 @@ impl From<&LocalStoreOptions> for store::LocalOptions {
             directories_max_size_bytes: lso.directories_max_size_bytes,
             lease_time: lso.lease_time,
             shard_count: lso.shard_count,
+            backend: lso.backend,
         }
     }
 }
