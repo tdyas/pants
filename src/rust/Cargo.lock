@@ -4160,7 +4160,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "sharded_lmdb",
- "sharded_sqlite",
  "task_executor",
  "tempfile",
  "testutil",

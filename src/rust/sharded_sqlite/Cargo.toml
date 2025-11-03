@@ -13,6 +13,13 @@ rusqlite = { version = "0.37.0", features = ["bundled"] }
 tokio = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
+sharded_lmdb = { path = "../sharded_lmdb" }
+task_executor = { path = "../task_executor" }
 tempfile = { workspace = true }
 testutil = { path = "../testutil" }
+tokio = { workspace = true, features = ["rt", "macros"] }
 
+[[bench]]
+name = "backend_comparison"
+harness = false

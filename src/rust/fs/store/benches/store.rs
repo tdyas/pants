@@ -19,7 +19,7 @@ use protos::pb::build::bazel::remote::execution::v2 as remexec;
 use task_executor::Executor;
 use tempfile::TempDir;
 
-use store::{OneOffStoreFileByDigest, Snapshot, SnapshotOps, Store, SubsetParams};
+use store::{LocalOptions, LocalStoreBackend, OneOffStoreFileByDigest, Snapshot, SnapshotOps, Store, SubsetParams};
 
 fn executor() -> Executor {
     Executor::new_owned(num_cpus::get(), num_cpus::get() * 4, || ()).unwrap()
@@ -325,12 +325,41 @@ fn snapshot(
     max_files: usize,
     file_target_size: usize,
 ) -> (Store, TempDir, DirectoryDigest) {
+    snapshot_with_backend(executor, max_files, file_target_size, LocalStoreBackend::Lmdb)
+}
+
+///
+/// Returns a Store (and the TempDir it is stored in) and a Digest for a nested directory
+/// containing the given number of files, each with roughly the given size.
+/// Allows specifying the backend to use.
+///
+fn snapshot_with_backend(
+    executor: &Executor,
+    max_files: usize,
+    file_target_size: usize,
+    backend: LocalStoreBackend,
+) -> (Store, TempDir, DirectoryDigest) {
     // NB: We create the files in a tempdir rather than in memory in order to allow for more
     // realistic benchmarking involving large files. The tempdir is dropped at the end of this method
     // (after everything has been captured out of it).
     let (tempdir, path_stats) = tempdir_containing(max_files, file_target_size);
     let storedir = TempDir::new().unwrap();
-    let store = Store::local_only(executor.clone(), storedir.path()).unwrap();
+    let immutable_inputs_base = TempDir::new().unwrap();
+
+    let options = LocalOptions {
+        files_max_size_bytes: 1024 * 1024 * 1024,       // 1GB
+        directories_max_size_bytes: 1024 * 1024 * 1024, // 1GB
+        lease_time: Duration::from_secs(2 * 60 * 60),   // 2 hours
+        shard_count: 16,
+        backend,
+    };
+
+    let store = Store::local_only_with_options(
+        executor.clone(),
+        storedir.path(),
+        immutable_inputs_base.path(),
+        options,
+    ).unwrap();
 
     let store2 = store.clone();
     let digest = executor
