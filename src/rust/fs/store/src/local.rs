@@ -32,6 +32,13 @@ use workunit_store::ObservationMetric;
 // for somewhere between 2 and 3 uses of the corresponding entry to "break even".
 const LARGE_FILE_SIZE_LIMIT: usize = 512 * 1024;
 
+/// Enum to hold either LMDB or SQLite backend.
+#[derive(Debug, Clone)]
+enum ByteStoreBackend {
+    Lmdb(Arc<ShardedLmdb>),
+    Sqlite(Arc<ShardedSqlite>),
+}
+
 /// Trait for the underlying storage, which is either a ShardedLMDB or a ShardedFS.
 /// This trait abstracts over different storage backends (LMDB, SQLite, etc.)
 #[async_trait]
@@ -199,6 +206,95 @@ impl UnderlyingByteStore for ShardedSqlite {
 
     async fn aged_fingerprints(&self) -> Result<Vec<AgedFingerprint>, String> {
         self.all_fingerprints().await
+    }
+}
+
+#[async_trait]
+impl UnderlyingByteStore for ByteStoreBackend {
+    async fn exists_batch(
+        &self,
+        fingerprints: Vec<Fingerprint>,
+    ) -> Result<HashSet<Fingerprint>, String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.exists_batch(fingerprints).await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.exists_batch(fingerprints).await,
+        }
+    }
+
+    async fn lease(&self, fingerprint: Fingerprint) -> Result<(), String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.lease(fingerprint).await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.lease(fingerprint).await,
+        }
+    }
+
+    async fn remove(&self, fingerprint: Fingerprint) -> Result<bool, String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.remove(fingerprint).await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.remove(fingerprint).await,
+        }
+    }
+
+    async fn store_bytes_batch(
+        &self,
+        items: Vec<(Fingerprint, Bytes)>,
+        initial_lease: bool,
+    ) -> Result<(), String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.store_bytes_batch(items, initial_lease).await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.store_bytes_batch(items, initial_lease).await,
+        }
+    }
+
+    async fn store(
+        &self,
+        initial_lease: bool,
+        src_is_immutable: bool,
+        expected_digest: Digest,
+        _file_source: &FileSource,
+        src: PathBuf,
+    ) -> Result<(), String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => {
+                lmdb.store(
+                    initial_lease,
+                    src_is_immutable,
+                    expected_digest,
+                    move || {
+                        // NB: This file access is bounded by the number of blocking threads on the runtime, and
+                        // so we don't bother to acquire against the file handle limit in this case.
+                        std::fs::File::open(&src)
+                    },
+                )
+                .await
+            }
+            ByteStoreBackend::Sqlite(sqlite) => {
+                sqlite
+                    .store_file(expected_digest.hash, src, initial_lease)
+                    .await
+            }
+        }
+    }
+
+    async fn load_bytes_with<
+        T: Send + 'static,
+        F: FnMut(&[u8]) -> Result<T, String> + Send + Sync + 'static,
+    >(
+        &self,
+        fingerprint: Fingerprint,
+        f: F,
+    ) -> Result<Option<T>, String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.load_bytes_with(fingerprint, f).await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.load_bytes_with(fingerprint, f).await,
+        }
+    }
+
+    async fn aged_fingerprints(&self) -> Result<Vec<AgedFingerprint>, String> {
+        match self {
+            ByteStoreBackend::Lmdb(lmdb) => lmdb.aged_fingerprints().await,
+            ByteStoreBackend::Sqlite(sqlite) => sqlite.aged_fingerprints().await,
+        }
     }
 }
 
@@ -609,8 +705,8 @@ struct InnerStore {
     // Store directories separately from files because:
     //  1. They may have different lifetimes.
     //  2. It's nice to know whether we should be able to parse something as a proto.
-    file_lmdb: Result<Arc<ShardedLmdb>, String>,
-    directory_lmdb: Result<Arc<ShardedLmdb>, String>,
+    file_backend: Result<ByteStoreBackend, String>,
+    directory_backend: Result<ByteStoreBackend, String>,
     file_fsdb: ShardedFSDB,
     file_source: FileSource,
 }
@@ -629,8 +725,8 @@ impl ByteStore {
         options: super::LocalOptions,
     ) -> Result<ByteStore, String> {
         let root = path.as_ref();
-        let lmdb_files_root = root.join("files");
-        let lmdb_directories_root = root.join("directories");
+        let backend_files_root = root.join("files");
+        let backend_directories_root = root.join("directories");
         let fsdb_files_root = root.join("immutable").join("files");
 
         std::fs::create_dir_all(root)
@@ -638,24 +734,45 @@ impl ByteStore {
         std::fs::create_dir_all(&fsdb_files_root)
             .map_err(|e| format!("Failed to create {}: {e}", fsdb_files_root.display()))?;
 
+        // Create the appropriate backend based on configuration
+        let file_backend = match options.backend {
+            super::LocalStoreBackend::Lmdb => ShardedLmdb::new(
+                backend_files_root,
+                options.files_max_size_bytes,
+                executor.clone(),
+                options.lease_time,
+                options.shard_count,
+            )
+            .map(|lmdb| ByteStoreBackend::Lmdb(Arc::new(lmdb))),
+            super::LocalStoreBackend::Sqlite => ShardedSqlite::new(
+                backend_files_root,
+                options.files_max_size_bytes,
+                options.lease_time,
+            )
+            .map(|sqlite| ByteStoreBackend::Sqlite(Arc::new(sqlite))),
+        };
+
+        let directory_backend = match options.backend {
+            super::LocalStoreBackend::Lmdb => ShardedLmdb::new(
+                backend_directories_root,
+                options.directories_max_size_bytes,
+                executor.clone(),
+                options.lease_time,
+                options.shard_count,
+            )
+            .map(|lmdb| ByteStoreBackend::Lmdb(Arc::new(lmdb))),
+            super::LocalStoreBackend::Sqlite => ShardedSqlite::new(
+                backend_directories_root,
+                options.directories_max_size_bytes,
+                options.lease_time,
+            )
+            .map(|sqlite| ByteStoreBackend::Sqlite(Arc::new(sqlite))),
+        };
+
         Ok(ByteStore {
             inner: Arc::new(InnerStore {
-                file_lmdb: ShardedLmdb::new(
-                    lmdb_files_root,
-                    options.files_max_size_bytes,
-                    executor.clone(),
-                    options.lease_time,
-                    options.shard_count,
-                )
-                .map(Arc::new),
-                directory_lmdb: ShardedLmdb::new(
-                    lmdb_directories_root,
-                    options.directories_max_size_bytes,
-                    executor.clone(),
-                    options.lease_time,
-                    options.shard_count,
-                )
-                .map(Arc::new),
+                file_backend,
+                directory_backend,
                 file_fsdb: ShardedFSDB {
                     executor: executor,
                     root: fsdb_files_root,
@@ -689,10 +806,10 @@ impl ByteStore {
         }
 
         // In parallel, check for the given fingerprint in all databases.
-        let directory_lmdb = self.inner.directory_lmdb.clone()?;
-        let is_lmdb_dir = directory_lmdb.exists(fingerprint);
-        let file_lmdb = self.inner.file_lmdb.clone()?;
-        let is_lmdb_file = file_lmdb.exists(fingerprint);
+        let directory_backend = self.inner.directory_backend.clone()?;
+        let is_lmdb_dir = directory_backend.exists(fingerprint);
+        let file_backend = self.inner.file_backend.clone()?;
+        let is_lmdb_file = file_backend.exists(fingerprint);
         let is_fsdb_file = self.inner.file_fsdb.exists(fingerprint);
 
         // TODO: Could technically use select to return slightly more quickly with the first
@@ -715,8 +832,8 @@ impl ByteStore {
                 self.inner.file_fsdb.lease(digest.hash).await?;
             } else {
                 let dbs = match entry_type {
-                    EntryType::File => self.inner.file_lmdb.clone(),
-                    EntryType::Directory => self.inner.directory_lmdb.clone(),
+                    EntryType::File => self.inner.file_backend.clone(),
+                    EntryType::Directory => self.inner.directory_backend.clone(),
                 };
                 dbs?.lease(digest.hash)
                     .await
@@ -744,7 +861,7 @@ impl ByteStore {
 
         fingerprints_by_expired_ago.extend(
             self.inner
-                .file_lmdb
+                .file_backend
                 .clone()?
                 .aged_fingerprints()
                 .await?
@@ -756,7 +873,7 @@ impl ByteStore {
         );
         fingerprints_by_expired_ago.extend(
             self.inner
-                .directory_lmdb
+                .directory_backend
                 .clone()?
                 .aged_fingerprints()
                 .await?
@@ -798,7 +915,10 @@ impl ByteStore {
         }
 
         if shrink_behavior == ShrinkBehavior::Compact {
-            self.inner.file_lmdb.clone()?.compact()?;
+            // Only LMDB supports compaction
+            if let ByteStoreBackend::Lmdb(lmdb) = self.inner.file_backend.clone()? {
+                lmdb.compact()?;
+            }
         }
 
         Ok(used_bytes)
@@ -806,11 +926,11 @@ impl ByteStore {
 
     pub async fn remove(&self, entry_type: EntryType, digest: Digest) -> Result<bool, String> {
         match entry_type {
-            EntryType::Directory => self.inner.directory_lmdb.clone()?.remove(digest.hash).await,
+            EntryType::Directory => self.inner.directory_backend.clone()?.remove(digest.hash).await,
             EntryType::File if ByteStore::should_use_fsdb(entry_type, digest.size_bytes) => {
                 self.inner.file_fsdb.remove(digest.hash).await
             }
-            EntryType::File => self.inner.file_lmdb.clone()?.remove(digest.hash).await,
+            EntryType::File => self.inner.file_backend.clone()?.remove(digest.hash).await,
         }
     }
 
@@ -853,8 +973,8 @@ impl ByteStore {
         }
 
         let lmdb_dbs = match entry_type {
-            EntryType::Directory => self.inner.directory_lmdb.clone(),
-            EntryType::File => self.inner.file_lmdb.clone(),
+            EntryType::Directory => self.inner.directory_backend.clone(),
+            EntryType::File => self.inner.file_backend.clone(),
         };
         try_join(
             self.inner
@@ -903,15 +1023,17 @@ impl ByteStore {
                 .await?;
         } else {
             let dbs = match entry_type {
-                EntryType::Directory => self.inner.directory_lmdb.clone()?,
-                EntryType::File => self.inner.file_lmdb.clone()?,
+                EntryType::Directory => self.inner.directory_backend.clone()?,
+                EntryType::File => self.inner.file_backend.clone()?,
             };
             let _ = dbs
-                .store(initial_lease, src_is_immutable, digest, move || {
-                    // NB: This file access is bounded by the number of blocking threads on the runtime, and
-                    // so we don't bother to acquire against the file handle limit in this case.
-                    std::fs::File::open(&src)
-                })
+                .store(
+                    initial_lease,
+                    src_is_immutable,
+                    digest,
+                    &self.inner.file_source,
+                    src,
+                )
                 .await;
         }
 
@@ -942,8 +1064,8 @@ impl ByteStore {
         }
 
         let lmdb = match entry_type {
-            EntryType::Directory => self.inner.directory_lmdb.clone(),
-            EntryType::File => self.inner.file_lmdb.clone(),
+            EntryType::Directory => self.inner.directory_backend.clone(),
+            EntryType::File => self.inner.file_backend.clone(),
         }?;
         let (mut existing, existing_lmdb_digests) = try_join(
             self.inner
@@ -1015,8 +1137,8 @@ impl ByteStore {
                 .await?
         } else {
             let dbs = match entry_type {
-                EntryType::Directory => self.inner.directory_lmdb.clone(),
-                EntryType::File => self.inner.file_lmdb.clone(),
+                EntryType::Directory => self.inner.directory_backend.clone(),
+                EntryType::File => self.inner.file_backend.clone(),
             }?;
             dbs.load_bytes_with(digest.hash, len_checked_f).await?
         };
@@ -1035,8 +1157,8 @@ impl ByteStore {
 
     pub async fn all_digests(&self, entry_type: EntryType) -> Result<Vec<Digest>, String> {
         let lmdb = match entry_type {
-            EntryType::File => self.inner.file_lmdb.clone(),
-            EntryType::Directory => self.inner.directory_lmdb.clone(),
+            EntryType::File => self.inner.file_backend.clone(),
+            EntryType::Directory => self.inner.directory_backend.clone(),
         }?;
         let mut digests = vec![];
         digests.extend(lmdb.all_digests().await?);
