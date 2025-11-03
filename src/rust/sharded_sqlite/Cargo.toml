@@ -1,0 +1,18 @@
+[package]
+name = "sharded_sqlite"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+hashing = { path = "../hashing" }
+log = { workspace = true }
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+testutil = { path = "../testutil" }
+
